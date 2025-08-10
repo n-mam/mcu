@@ -1,0 +1,7 @@
+<RCC>
+    <qresource prefix="/">
+        <file>main.qml</file>
+        <file>screens/Trace.qml</file>
+        <file>screens/Control.qml</file>
+    </qresource>
+</RCC>

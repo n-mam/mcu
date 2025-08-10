@@ -1,0 +1,3 @@
+Discovery.ip max_size: 512
+MessageA.data max_size: 512
+MessageLog.data max_size: 512

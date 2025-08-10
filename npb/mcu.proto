@@ -1,0 +1,38 @@
+syntax = "proto3";
+
+message MessageA {
+    string data = 1;
+}
+
+message MessageB {
+    int32 id = 1;
+}
+
+message MessageC {
+    bool status = 1;
+}
+
+message Discovery {
+    string ip = 1;
+}
+
+message KeyValue {
+    uint32 key = 1;
+    float value = 2;
+}
+
+message MessageLog {
+    string data = 1;
+}
+
+message Packet {
+    oneof payload {
+        MessageA msg_a = 1;
+        MessageB msg_b = 2;
+        MessageC msg_c = 3;
+        Discovery msg_d = 4;
+        KeyValue msg_kv = 5;
+        MessageLog msg_log = 6;
+    }
+}
+
