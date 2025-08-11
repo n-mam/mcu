@@ -38,7 +38,7 @@ Download and unzip nanopb from the below url
 https://jpa.kapsi.fi/nanopb/download/
 SET PATH=D:\Python39;%PATH%
 ```
-### PICO
+#### PICO
 ```
 Download and clone the latest pico sdk
 git clone https://github.com/raspberrypi/pico-sdk.git
@@ -49,7 +49,7 @@ cmake -G "Ninja" -DPLATFORM=PICO -DNANOPB_SRC_ROOT_FOLDER=D:/nanopb-0.4.9.1  ..
 cmake --build .
 ```
 
-### STM32
+#### STM32
 ```
 git clone https://github.com/ARM-software/CMSIS_5
 cd CMSIS_5/Device && mkdir ST && cd ST
@@ -67,7 +67,7 @@ However on Nucleo-F767ZI the 8MHz MCO output of the attached stlink is used as H
 the system_stm32f7xx.c has HSE_VALUE of 25000000Hz. So we need to change the HSE_VALUE for F7.
 ```
 
-cmake configure - F4 line (F411 and F446 targets)
+cmake build - F4/F7 line (F411 and F446 targets)
 ```
 cmake -G "Ninja" ^
 -DPLATFORM=STM32 ^
@@ -77,6 +77,32 @@ cmake -G "Ninja" ^
 -DCMSIS_ROOT=D:/CMSIS_5 ^
 -DTOOLCHAIN_PREFIX="D:/arm-none-eabi-14.2.1" ^
 -DNANOPB_SRC_ROOT_FOLDER=D:/nanopb-0.4.9.1 ^
+-DCMAKE_TOOLCHAIN_FILE=../toolchain.cmake ..
+```
+
+cmake build (H7, repeat for cm4 and cm7)
+```
+cmake -G "Ninja" ^
+-DPLATFORM=STM32 ^
+-DCMSIS_LINE=h7 ^
+-DCMSIS_CORE=CM7 ^
+-DCMAKE_BUILD_TYPE=Debug ^
+-DCMSIS_ROOT=D:/CMSIS_5 ^
+-DTOOLCHAIN_PREFIX="D:/arm-none-eabi-14.2.1" ^
+-DNANOPB_SRC_ROOT_FOLDER=D:/nanopb-0.4.9.1 ^
+-DCMAKE_TOOLCHAIN_FILE=../toolchain.cmake ..
+```
+
+On Linux something on the below lines should work:
+```
+cmake -G "Ninja" \
+-DPLATFORM=STM32 \
+-DCMSIS_LINE=f4 \
+-DCMSIS_TARGET=f411 \
+-DCMAKE_BUILD_TYPE=Debug \
+-DCMSIS_ROOT=/home/nmam/code/CMSIS_5 \
+-DTOOLCHAIN_PREFIX="/home/nmam/code/arm-none-eabi" \
+-DNANOPB_SRC_ROOT_FOLDER=/home/nmam/code/nanopb-0.4.9.1/nanopb \
 -DCMAKE_TOOLCHAIN_FILE=../toolchain.cmake ..
 
 cmake --build .
@@ -98,7 +124,6 @@ Found 1 stlink programmers
 openocd
 ```
 openocd -f interface/stlink.cfg -f target/stm32f4x.cfg
-
 openocd -f interface/stlink.cfg -f target/stm32h7x_dual_bank.cfg ^
   -c "program build/m7core.elf verify; program build/m4core.elf reset verify exit"
 ```
@@ -250,21 +275,8 @@ Info : New GDB Connection: 1, Target stm32h7x.cpu1, state: halted
 Info : dropped 'gdb' connection
 shutdown command invoked
 ```
-```
-cmake -G "Ninja" ^
--DPLATFORM=STM32 ^
--DCMSIS_LINE=h7 ^
--DCMSIS_CORE=CM7 ^
--DCMAKE_BUILD_TYPE=Debug ^
--DCMSIS_ROOT=D:/CMSIS_5 ^
--DTOOLCHAIN_PREFIX="D:/arm-none-eabi-14.2.1" ^
--DNANOPB_SRC_ROOT_FOLDER=D:/nanopb-0.4.9.1 ^
--DCMAKE_TOOLCHAIN_FILE=../toolchain.cmake ..
 
-cmake --build .
-```
-
-wifi Setup
+wifi Setup (pico-w variants)
 
 ```
 find the MAC of the MCU's wifi chip like so:
@@ -310,5 +322,4 @@ Interface: 192.168.31.35 --- 0xa
   224.0.0.252           01-00-5e-00-00-fc     static
   239.255.255.250       01-00-5e-7f-ff-fa     static
   255.255.255.255       ff-ff-ff-ff-ff-ff     static
-
 ```

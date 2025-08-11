@@ -13,7 +13,11 @@ using CST = std::tuple<uint8_t, uint8_t, uint8_t, uint8_t>;
 struct bno {
 
     bno(int sda, int scl, uint freq = 400*1000) {
-        i2c::initialize(sda, scl, freq);
+        #if defined (STM32)
+        i2c::initialize(sda, scl, freq, I2C1, GPIOB);
+        #elif defined (PICO)
+        i2c::initialize(sda, scl, freq, i2c0);
+        #endif
     }
 
     ~bno() {}

@@ -8,7 +8,7 @@
 
 namespace mcl {
 
-inline void i2c_init(uint8_t scl, uint8_t sda, uint freq = 400*1000, I2C_TypeDef* I2Cx = I2C1, GPIO_TypeDef *GPIOx = GPIOB) {
+inline void i2c_init(uint8_t scl, uint8_t sda, uint freq, I2C_TypeDef* I2Cx, GPIO_TypeDef *GPIOx) {
     // Enable clock to GPIO
     enableClockForGpio(GPIOx);
 	// Clear mode first
@@ -173,11 +173,11 @@ inline int8_t i2c_read(uint8_t dev_addr, uint8_t mem_addr, uint8_t *data, uint16
     return len;
 }
 
-inline void i2c_bus_scan(I2C_TypeDef* I2Cx = I2C1) {
+inline void i2c_bus_scan(I2C_TypeDef* I2Cx) {
     // I2C address range is from 8 to 119. Address 0 is reserved as
     // a broadcast address, addresses 1 to 7 are reserved for other
     // purposes, and addresses 120 to 127 are reserved for future use
-    i2c_init(6, 7, 400*1000);
+    i2c_init(6, 7, 400*1000, I2Cx, GPIOB);
     //i2c_init(6, 7, 100*1000);
     for (uint8_t i = 8; i <= 119; i++) {
         auto rc = 0;

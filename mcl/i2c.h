@@ -16,16 +16,21 @@
 
 namespace i2c {
 
-inline void initialize(int sda, int scl, uint freq) {
-    #if defined (PICO)
-    i2c_init(i2c0, freq);
-    gpio_set_function(sda, GPIO_FUNC_I2C);
-    gpio_set_function(scl, GPIO_FUNC_I2C);
-    gpio_pull_up(sda);
-    gpio_pull_up(scl);
-    #elif defined (STM32)
-    mcl::i2c_init(scl, sda, freq);
+inline void initialize(int sda, int scl, uint freq
+    #if defined (STM32)
+    , I2C_TypeDef* I2Cx, GPIO_TypeDef *GPIOx) {
+    #elif defined (PICO)
+    , i2c_inst_t *I2Cx) {
     #endif
+        #if defined (PICO)
+        i2c_init(I2Cx, freq);
+        gpio_set_function(sda, GPIO_FUNC_I2C);
+        gpio_set_function(scl, GPIO_FUNC_I2C);
+        gpio_pull_up(sda);
+        gpio_pull_up(scl);
+        #elif defined (STM32)
+        mcl::i2c_init(scl, sda, freq, I2Cx, GPIOx);
+        #endif
 }
 
 #if defined (PICO)

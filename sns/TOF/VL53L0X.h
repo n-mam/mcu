@@ -207,7 +207,7 @@ uint16_t vl53l0x::getTimeout()
 // Constructors ////////////////////////////////////////////////////////////////
 
 vl53l0x::vl53l0x(int sda, int scl, uint freq) {
-    i2c::initialize(sda, scl, freq);
+    i2c::initialize(sda, scl, freq, i2c0);
     this->i2cPort = i2c0;
     this->address = VL53L0X_DEFAULT_ADDRESS;
 }

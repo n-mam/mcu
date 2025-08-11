@@ -21,6 +21,8 @@ void test_bldc_trapezoidal_ll();
 void test_bldc_sinusoidal_wave();
 void test_bldc_trapezoidal_pwm();
 
+config *c = nullptr;
+
 int main(void) {
     mcl::initialize();
     auto c = getInstance<config>();
@@ -74,6 +76,7 @@ int main(void) {
     }
 }
 
+#if defined (STM32)
 void test_bldc_sinusoidal_wave() {
     // on nucleo-64 boards PA2 PA3
     // are used by stlink usart
@@ -206,6 +209,13 @@ void test_bldc_trapezoidal_pwm() {
     }
     apply_step_pwm({0,0,0,0,0,0}, 0, tm);
 }
+#elif defined (PICO)
+
+void test_bldc_trapezoidal_ll() {}
+void test_bldc_sinusoidal_wave() {}
+void test_bldc_trapezoidal_pwm() {}
+
+#endif
 
 void test_vl53l0x() {
     #if defined (PICO)
@@ -366,9 +376,9 @@ void toggle_default_led() {
 
 void test_bno085() {
     #if defined (STM32F4) || defined (STM32F7) || defined (STM32H7)
-    auto imu = sensor::create<imu::bno85>(7, 6, 400 * 1000);
+    auto imu = sensor::create<imu::bno85>(7, 6, 400*1000);
     #elif defined (PICO)
-    auto imu = sensor::create<imu::bno85>(16, 17, 400 * 1000);
+    auto imu = sensor::create<imu::bno85>(16, 17, 400*1000);
     #endif
     while (true) {
         auto [h, p, r] = imu->getEulerAngles();
@@ -382,9 +392,9 @@ void test_bno085() {
 
 void test_bno055() {
     #if defined (STM32F4) || defined (STM32F7) || defined (STM32H7)
-    auto imu = sensor::create<imu::bno55>(7, 6, 400 * 1000);
+    auto imu = sensor::create<imu::bno55>(7, 6, 400*1000);
     #elif defined (PICO)
-    auto imu = sensor::create<imu::bno55>(16, 17, 400 * 1000);
+    auto imu = sensor::create<imu::bno55>(16, 17, 400*1000);
     #endif
     while (true) {
         auto [gyro, accl, mag, sys] = imu->getCalibrationStatus();
@@ -417,9 +427,9 @@ void test_hmc58883l() {
 
 void test_ms5837() {
     #if defined (STM32F4) || defined (STM32F7) || defined (STM32H7)
-    auto ms5837 = sensor::create<MS5837>(7, 6, 400 * 1000);
+    auto ms5837 = sensor::create<MS5837>(7, 6, 400*1000);
     #elif defined (PICO)
-    auto ms5837 = sensor::create<MS5837>(16, 17, 400 * 1000);
+    auto ms5837 = sensor::create<MS5837>(16, 17, 400*1000);
     #endif
     ms5837->init();
     mcl::sleep_ms(5000);

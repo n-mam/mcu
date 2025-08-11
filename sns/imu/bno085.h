@@ -41,7 +41,7 @@ struct bno85 : public bno {
     sh2_Hal_t _sh2_hal;
     sh2_ProductIds_t _prodIds;
 
-    bno85(int sda, int scl, uint freq = 400*1000) : bno(sda, scl, freq) {}
+    bno85(int sda, int scl, uint freq) : bno(sda, scl, freq) {}
 
     bool init_i2c_hal() {
         if (!hal_reset()) return false;

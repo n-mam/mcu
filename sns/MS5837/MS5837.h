@@ -20,7 +20,11 @@ struct MS5837 {
 
     MS5837(int sda, int scl, uint freq) :
         _model(MS5837_UNKNOWN), fluidDensity(1029) {
-            i2c::initialize(sda, scl, freq);
+        #if defined (STM32)
+        i2c::initialize(sda, scl, freq, I2C1, GPIOB);
+        #elif defined (PICO)
+        i2c::initialize(sda, scl, freq, i2c0);
+        #endif
     }
 
     bool init() {
