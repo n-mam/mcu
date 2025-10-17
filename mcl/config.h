@@ -26,7 +26,7 @@ struct config {
         return key_names[k];
     }
 
-    inline auto getValue(key k) {
+    inline auto getKeyValue(key k) {
         return key_values[k];
     }
 
@@ -36,7 +36,7 @@ struct config {
     }
 
     inline auto shouldExit() {
-        return !getValue(key::action);
+        return getKeyValue(key::action) == 1;
     }
 
     private:

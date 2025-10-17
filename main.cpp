@@ -21,14 +21,12 @@ void test_bldc_trapezoidal_ll();
 void test_bldc_sinusoidal_wave();
 void test_bldc_trapezoidal_pwm();
 
-config *c = nullptr;
-
 int main(void) {
     mcl::initialize();
     auto c = getInstance<config>();
-    while(!c->getValue(config::key::action)) { mcl::send_discovery(); };
+    while(!c->getKeyValue(config::key::action)) { mcl::send_discovery(); };
     while (true) {
-        auto action = (int)c->getValue(config::key::action);
+        auto action = (int)c->getKeyValue(config::key::action);
         LOG << "waiting for new action.. " << action;
         if (action == 1) {
             test_led();
@@ -79,7 +77,7 @@ int main(void) {
 #if defined (STM32)
 void test_bldc_sinusoidal_wave() {
     // on nucleo-64 boards PA2 PA3
-    // are used by stlink usart
+    // are used by stlink USART
     // use PB timer AF instead
     #if defined (STM32)
     Timer t2(TIM2);
@@ -106,31 +104,34 @@ void test_bldc_sinusoidal_wave() {
 // phases U, V and W phases
 
 typedef struct {
-    uint8_t HA, LA;
-    uint8_t HB, LB;
-    uint8_t HC, LC;
-} Step;
+    uint8_t HA;
+    uint8_t LA;
+    uint8_t HB;
+    uint8_t LB;
+    uint8_t HC;
+    uint8_t LC;
+} step;
 
-Step comm_table[6] = {
-    {1, 0, 0, 1, 0, 0},  // Step 1: A+ B-
-    {1, 0, 0, 0, 0, 1},  // Step 2: A+ C-
-    {0, 0, 1, 0, 0, 1},  // Step 3: B+ C-
-    {0, 1, 1, 0, 0, 0},  // Step 4: B+ A-
-    {0, 1, 0, 0, 1, 0},  // Step 5: C+ A-
-    {0, 0, 0, 1, 1, 0},  // Step 6: C+ B-
+step comm_table[6] = {
+    {1, 0, 0, 1, 0, 0},  // step 1: A+ B-
+    {1, 0, 0, 0, 0, 1},  // step 2: A+ C-
+    {0, 0, 1, 0, 0, 1},  // step 3: B+ C-
+    {0, 1, 1, 0, 0, 0},  // step 4: B+ A-
+    {0, 1, 0, 0, 1, 0},  // step 5: C+ A-
+    {0, 0, 0, 1, 1, 0},  // step 6: C+ B-
 };
 
-void apply_step_pwm(Step s, double duty, Timer& timer) {
+void apply_step_pwm(step s, double duty, Timer& timer) {
     GPIOA->BSRR =
         (s.LA ? GPIO_BSRR_BS1 : GPIO_BSRR_BR1) |
         (s.LB ? GPIO_BSRR_BS3 : GPIO_BSRR_BR3) |
         (s.LC ? GPIO_BSRR_BS5 : GPIO_BSRR_BR5);
-    timer.set_duty_cycle(1, duty);
-    timer.set_duty_cycle(2, duty);
-    timer.set_duty_cycle(3, duty);
+    timer.set_duty_cycle(1, s.HA ? duty : 0);
+    timer.set_duty_cycle(2, s.HB ? duty : 0);
+    timer.set_duty_cycle(3, s.HC ? duty : 0);
 }
 
-void apply_step_ll(Step s) {
+void apply_step_ll(step s) {
     GPIOA->BSRR =
         (s.HA ? GPIO_BSRR_BS0 : GPIO_BSRR_BR0) |
         (s.LA ? GPIO_BSRR_BS1 : GPIO_BSRR_BR1) |
@@ -161,7 +162,9 @@ void test_bldc_trapezoidal_ll() {
         // Next commutation step
         apply_step_ll(comm_table[step]);
         // Hold for the motor to react
-        mcl::sleep_ms(100);
+        // what works for hard disk motors
+        // 2s(7v) - 20ms, 15ms (with jerk start)
+        mcl::sleep_ms(20);
         step = (step + 1) % 6;
     }
 }
@@ -170,11 +173,11 @@ void test_bldc_trapezoidal_pwm() {
     #if defined (STM32)
     // Enable clock
     mcl::enableClockForGpio(GPIOA);
-    // // Clear mode bits for PA1, PA3, PA5 as GPIO outputs (LA, LB, LC)
+    // Clear mode bits for PA1, PA3, PA5 as GPIO outputs (LA, LB, LC)
     GPIOA->MODER &= ~((3 << (1 * 2)) | (3 << (3 * 2)) | (3 << (5 * 2)));
     // Set PA1, PA3, PA5 as GP outputs (LA, LB, LC)
     GPIOA->MODER |=  ((1 << (1 * 2)) | (1 << (3 * 2)) | (1 << (5 * 2)));
-    // Configure PA8, PA9, PA10 as HS PWM
+    // Configure TIM4 CH1-CH3 on PB6, PB7, PB8 as High-Side PWM outputs (HA, HB, HC)
     Timer tm(TIM4);
     // 20KHz BLDC frequency
     tm.set_frequency(20*1000);
@@ -194,27 +197,25 @@ void test_bldc_trapezoidal_pwm() {
     tm.enable();
     #endif
     int step = 0;
-    double duty = 0.30;
+    double duty = 0.90;
     while (!getInstance<config>()->shouldExit()) {
         // All off
         apply_step_pwm({0,0,0,0,0,0}, 0, tm);
         // Dead time
-        mcl::sleep_ms(5);
+        mcl::sleep_ms(2);
         // Next commutation step
-        duty = getInstance<config>()->getValue(config::key::motor);
+        duty = 0.90; //getInstance<config>()->getKeyValue(config::key::motor);
         apply_step_pwm(comm_table[step], duty, tm);
         // Hold for the motor to react
-        mcl::sleep_ms(10);
+        mcl::sleep_ms(15);
         step = (step + 1) % 6;
     }
     apply_step_pwm({0,0,0,0,0,0}, 0, tm);
 }
 #elif defined (PICO)
-
 void test_bldc_trapezoidal_ll() {}
 void test_bldc_sinusoidal_wave() {}
 void test_bldc_trapezoidal_pwm() {}
-
 #endif
 
 void test_vl53l0x() {
@@ -450,7 +451,7 @@ inline void test_m200() {
     auto m200 = mcl::initialize_m200(PWM_PIN_MOTOR, PWM_FREQ_MOTOR);
     while (!getInstance<config>()->shouldExit()) {
         LOG << "looping...1";
-        m200->set_duty_cycle(getInstance<config>()->getValue(config::key::motor) / 20.0);
+        m200->set_duty_cycle(getInstance<config>()->getKeyValue(config::key::motor) / 20.0);
         mcl::sleep_ms(1000);
     }
 }
