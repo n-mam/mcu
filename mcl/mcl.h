@@ -186,6 +186,12 @@ inline void initialize() {
     #ifndef STM32H7
     // Enable 1ms systick interrupts
     SysTick_Config(SystemCoreClock / 1000U);
+    // Enable DWT
+    CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+    // Reset cycle counter
+    DWT->CYCCNT = 0;
+    // Enable cycle counter
+    DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
     // Set SysTick interrupt priority
     NVIC_SetPriority(SysTick_IRQn, 0);
     #endif

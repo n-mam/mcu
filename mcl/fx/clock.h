@@ -30,6 +30,12 @@ inline uint64_t time_ms() {
     #endif
 }
 
+void delay_us(uint32_t us) {
+    uint32_t start = DWT->CYCCNT;
+    uint32_t ticks = us * (SystemCoreClock / 1000000);
+    while ((DWT->CYCCNT - start) < ticks);
+}
+
 inline void delay_ms(uint32_t milliseconds) {
     uint32_t start = get_tick();
     uint32_t end = start + milliseconds;

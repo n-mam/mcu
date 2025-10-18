@@ -24,7 +24,37 @@ struct Timer {
 
     Timer(TIM_TypeDef *timer) : _timer(timer) {
         //t2 = this;
-        init_timer();
+        // Enable clock for the timer
+        mcl::enableClockForTimer(_timer);
+        // Derive a 1MHz timer input clock from the APB1 timer clock
+        _timer->PSC = (mcl::apb1TimerClock() / 1000000) - 1;
+        // Reset the timer
+        _timer->CR1 = 0;
+    }
+
+    bool isAdvancedTimer() {
+        return _timer == TIM1;
+    }
+
+    void enable() {
+        // Enable MOE for advanced timers
+        if (isAdvancedTimer()) {
+            _timer->BDTR |= TIM_BDTR_MOE;
+        }
+        // Enable the timer
+        _timer->CR1 |= TIM_CR1_CEN;
+    }
+
+    void disable() {
+        // disable MOE for advanced timers
+        if (isAdvancedTimer()) {
+            _timer->BDTR &= ~TIM_BDTR_MOE;
+        }
+        // Disable the timer
+        _timer->CR1 &= ~TIM_CR1_CEN;
+        // Clear interrupt flags to
+        // prevent pending interrupts
+        _timer->SR = 0;
     }
 
     void init_channel(int channel, GPIO_TypeDef *port, int pin) {
@@ -63,17 +93,19 @@ struct Timer {
         }
     }
 
-    void enable() {
-        // Enable the timer
-        _timer->CR1 |= TIM_CR1_CEN;
-    }
-
-    void disable() {
-        // Disable the timer
-        _timer->CR1 &= ~TIM_CR1_CEN;
-        // Clear interrupt flags to
-        // prevent pending interrupts
-        _timer->SR = 0;
+    void enable_interrupt() {
+        // Enable update event interrupt
+        _timer->DIER |= TIM_DIER_UIE;
+        // Enable TIM IRQ in NVIC
+        if (_timer == TIM2) {
+            NVIC_EnableIRQ(TIM2_IRQn);
+        } else if (_timer == TIM3) {
+            NVIC_EnableIRQ(TIM3_IRQn);
+        } else if (_timer == TIM4) {
+            NVIC_EnableIRQ(TIM4_IRQn);
+        } else if (_timer == TIM5) {
+            NVIC_EnableIRQ(TIM5_IRQn);
+        }
     }
 
     void start_channel(int channel) {
@@ -172,32 +204,6 @@ struct Timer {
         } else {
             port->AFR[1] &= ~(0xF << (4 * (pin - 8))); // Clear AFRH bits
             port->AFR[1] |= (2 << (4 * (pin - 8)));    // AF1 for timer
-        }
-    }
-
-    void init_timer() {
-        // Enable clock for the timer
-        mcl::enableClockForTimer(_timer);
-        // Derive a 1MHz timer input clock from the APB1 timer clock
-        _timer->PSC = (mcl::apb1TimerClock() / 1000000) - 1;
-        // Reset the timer
-        _timer->CR1 = 0;
-        // Enable update event interrupt
-        _timer->DIER |= TIM_DIER_UIE;
-        // Enable TIM IRQ in NVIC
-        if (_timer == TIM2) {
-            NVIC_EnableIRQ(TIM2_IRQn);
-        } else if (_timer == TIM3) {
-            NVIC_EnableIRQ(TIM3_IRQn);
-        } else if (_timer == TIM4) {
-            //commented for trap pwm to work with TIM4
-            //NVIC_EnableIRQ(TIM4_IRQn);
-        } else if (_timer == TIM5) {
-            NVIC_EnableIRQ(TIM5_IRQn);
-        }
-        // Enable Main Output (MOE) for advanced-control timers only
-        if (_timer == TIM1) {
-            _timer->BDTR |= TIM_BDTR_MOE;
         }
     }
 };

@@ -202,16 +202,17 @@ void test_bldc_trapezoidal_pwm() {
         // All off
         apply_step_pwm({0,0,0,0,0,0}, 0, tm);
         // Dead time
-        mcl::sleep_ms(2);
+        mcl::delay_us(2);
         // Next commutation step
         duty = 0.90; //getInstance<config>()->getKeyValue(config::key::motor);
         apply_step_pwm(comm_table[step], duty, tm);
         // Hold for the motor to react
-        mcl::sleep_ms(15);
+        mcl::sleep_ms(5);
         step = (step + 1) % 6;
     }
     apply_step_pwm({0,0,0,0,0,0}, 0, tm);
 }
+
 #elif defined (PICO)
 void test_bldc_trapezoidal_ll() {}
 void test_bldc_sinusoidal_wave() {}
