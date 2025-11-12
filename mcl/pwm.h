@@ -47,7 +47,7 @@ struct pwm {
         pwm_set_wrap(_slice, _wrap);
         //printf("pwm::pwm -> frequency %d, wrap %d\n", _frequency, _wrap);
         #else
-        _timer.init_channel(1, GPIOA, pin);
+        _timer.init_channel(1, GPIOA, pin, nullptr, -1);
         _timer.set_frequency(frequency);
         _timer.set_duty_cycle(1, 0.0f);
         #endif
@@ -63,7 +63,7 @@ struct pwm {
         set_duty_cycle(duty);
         pwm_set_enabled(_slice, true);
         #else
-        _timer.start_channel(1);
+        _timer.start_channel(1, false);
         _timer.enable();
         #endif
     }

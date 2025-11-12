@@ -86,8 +86,31 @@ inline uint32_t apb1PeripheralClock() {
     #endif
 }
 
-// apb2 timer clock
-// apb2 peripheral clock
+inline uint32_t apb2TimerClock() {
+    #if defined (STM32F411xE)
+    return 96000000;
+    #elif defined (STM32F446xx)
+    return 0;
+    #elif defined (STM32F767)
+    return 0;
+    #elif defined (STM32H755)
+    return 0;
+    #else
+    return 0;
+    #endif
+}
+
+inline uint32_t apb2PeripheralClock() {
+    #if defined (STM32F411xE)
+    return 96000000;
+    #elif defined (STM32F446xx)
+    return 0;
+    #elif defined (STM32F7)
+    return 0;
+    #elif defined (STM32H7)
+    return 0;
+    #endif
+}
 
 #if defined(STM32F4) || defined(STM32F7)
 void configure_flash() {
@@ -211,7 +234,11 @@ void clock_init(const std::vector<uint16_t> factors) {
 #endif
 
 inline void enableClockForTimer(TIM_TypeDef *timer) {
-    if (timer == TIM2) {
+    if (timer == TIM1) {
+        #if defined (STM32F4) || defined (STM32F7) || defined (STM32H7)
+            RCC->APB2ENR |= RCC_APB2ENR_TIM1EN;
+        #endif
+    } else if (timer == TIM2) {
         #if defined (STM32F4) || defined (STM32F7)
             RCC->APB1ENR |= RCC_APB1ENR_TIM2EN;
         #elif defined (STM32H7)
