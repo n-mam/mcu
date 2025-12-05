@@ -106,7 +106,6 @@ void test_bldc_sinusoidal_wave() {
 
 // phases A, B and C same as
 // phases U, V and W phases
-
 typedef struct {
     uint8_t HA;
     uint8_t LA;

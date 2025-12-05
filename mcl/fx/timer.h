@@ -101,11 +101,10 @@ struct Timer {
     }
 
     void set_dead_time(uint32_t dt_ns) {
-        // dead time is clocked directly using using timer input clock i.e.
-        // APB2, which can be either scaled or as-is. This is same as CLK_PSC
-        // BEFORE it gets divided by the timer's PSC factor post which it becomes
-        // CLK_CNT (input to the counter)
-        // Time period of DTS in nanoseconds
+        // dead time is clocked directly using using TIM1/8 input clock which is
+        // APB2 (either scaled or as-is). This is same as CLK_PSC BEFORE
+        // it gets divided by the timer's PSC factor, post which it becomes
+        // CLK_CNT (input to the counter); Time period of DTS in nanoseconds
         // ~ 10.41ns - with a 96MHz scaled APB1 timer input clock
         if (!isAdvance()) return;
         double T_dts_ns = (1.0 / timerClock()) * 1e9;
