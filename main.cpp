@@ -263,6 +263,7 @@ void test_bldc_trapezoidal_pwm() {
 void test_bldc_trapezoidal_ll() {}
 void test_bldc_sinusoidal_wave() {}
 void test_bldc_trapezoidal_pwm() {}
+void test_bldc_trapezoidal_pwm_comp() {}
 #endif
 
 void test_vl53l0x() {
@@ -563,12 +564,16 @@ inline void test_servo_drv8833_motor() {
 
 inline void test_sg90_servo() {
     // for servos the pwm frequency is ideally in a range of 40-200Hz. 50Hz frequency
-    // implies a cycle(pulse) every 20ms. The servo angle is determined by the pulse width in a 50 Hz PWM signal.
-    // Most servos move to 0 when they receive a pulse 1500 µs long. Generally it is safe to send a servo a pulse in the range 1000 µs to 2000 µs.
-    // Generally a 10 µs change in pulse width results in a 1 degree change in angle. At some point you will reach the limit of rotation. That limit
-    // varies between different makes and models of servos. If you try to force a servo beyond its limits it will get very hot (possibly to destruction)
-    // and may strip its gears. The small 9g servos generally have an extended angle range, 180 degrees or more. Typically they accept pulse widths in the
-    // range 500 µs to 2500 µs. Determine a servos limits carefully by experiment.
+    // implies a cycle(pulse) every 20ms. The servo angle is determined by the pulse
+    // width in a 50 Hz PWM signal. Most servos move to 0 when they receive a pulse
+    // 1500 µs long. Generally it is safe to send a servo a pulse in the range 1000 µs
+    // to 2000 µs. Generally a 10 µs change in pulse width results in a 1 degree change
+    // in angle. At some point you will reach the limit of rotation. That limit varies
+    // between different makes and models of servos. If you try to force a servo beyond
+    // its limits it will get very hot (possibly to destruction) and may strip its gears.
+    // The small 9g servos generally have an extended angle range, 180 degrees or more.
+    // Typically they accept pulse widths in the range 500 µs to 2500 µs. Determine a
+    // servos limits carefully by experiment.
     mcl::pwm _pwm(0, PWM_FREQ_SERVO);
     mcl::sleep_ms(5000);
     printf("starting servo...\n");

@@ -174,7 +174,6 @@ else()
         PRIVATE
         ${CMAKE_SOURCE_DIR}/mcl/fx
         ${CMSIS_ROOT}/CMSIS/Core/Include
-        #${CMAKE_SOURCE_DIR}/mcl/${CMSIS_LINE}
         ${CMSIS_ROOT}/Device/ST/cmsis_device_${CMSIS_LINE}/Include
     )
     set_target_properties(mcu PROPERTIES LINK_DEPENDS
