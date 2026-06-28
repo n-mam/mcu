@@ -77,7 +77,7 @@ cmake -G "Ninja" ^
 -DCMSIS_ROOT=D:/CMSIS_5 ^
 -DTOOLCHAIN_PREFIX="D:/arm-none-eabi-14.2.1" ^
 -DNANOPB_SRC_ROOT_FOLDER=D:/nanopb-0.4.9.1 ^
--DCMAKE_TOOLCHAIN_FILE=../toolchain.cmake ..
+-DCMAKE_TOOLCHAIN_FILE=./cmake/toolchain.cmake ..
 ```
 
 cmake build (H7, repeat for cm4 and cm7)
@@ -90,7 +90,7 @@ cmake -G "Ninja" ^
 -DCMSIS_ROOT=D:/CMSIS_5 ^
 -DTOOLCHAIN_PREFIX="D:/arm-none-eabi-14.2.1" ^
 -DNANOPB_SRC_ROOT_FOLDER=D:/nanopb-0.4.9.1 ^
--DCMAKE_TOOLCHAIN_FILE=../toolchain.cmake ..
+-DCMAKE_TOOLCHAIN_FILE=./cmake/toolchain.cmake ..
 ```
 
 On Linux something on the below lines should work:
@@ -103,7 +103,7 @@ cmake -G "Ninja" \
 -DCMSIS_ROOT=/home/nmam/code/CMSIS_5 \
 -DTOOLCHAIN_PREFIX="/home/nmam/code/arm-none-eabi" \
 -DNANOPB_SRC_ROOT_FOLDER=/home/nmam/code/nanopb-0.4.9.1/nanopb \
--DCMAKE_TOOLCHAIN_FILE=../toolchain.cmake ..
+-DCMAKE_TOOLCHAIN_FILE=./cmake/toolchain.cmake ..
 
 cmake --build .
 ```

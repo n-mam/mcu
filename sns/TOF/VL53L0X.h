@@ -74,15 +74,14 @@ class vl53l0x {
         ALGO_PHASECAL_CONFIG_TIMEOUT = 0x30,
     };
 
-    enum vcselPeriodType
-    {
+    enum vcselPeriodType {
         VcselPeriodPreRange,
         VcselPeriodFinalRange
     };
 
     uint8_t last_status; // status of last I2C transmission
 
-    vl53l0x(int sda, int scl, uint freq);
+    vl53l0x(int sda, int scl, int freq);
     vl53l0x(i2c_inst_t *i2cPort = i2c0, uint8_t address = VL53L0X_DEFAULT_ADDRESS);
 
     void setAddress(uint8_t new_addr);
@@ -126,13 +125,11 @@ private:
     // MSRC: Minimum Signal Rate Check
     // DSS: Dynamic Spad Selection
 
-    struct SequenceStepEnables
-    {
+    struct SequenceStepEnables {
         bool tcc, msrc, dss, pre_range, final_range;
     };
 
-    struct SequenceStepTimeouts
-    {
+    struct SequenceStepTimeouts {
         uint16_t pre_range_vcsel_period_pclks, final_range_vcsel_period_pclks;
         uint16_t msrc_dss_tcc_mclks, pre_range_mclks, final_range_mclks;
         uint32_t msrc_dss_tcc_us, pre_range_us, final_range_us;
@@ -206,7 +203,7 @@ uint16_t vl53l0x::getTimeout()
 
 // Constructors ////////////////////////////////////////////////////////////////
 
-vl53l0x::vl53l0x(int sda, int scl, uint freq) {
+vl53l0x::vl53l0x(int sda, int scl, int freq) {
     i2c::initialize(sda, scl, freq, i2c0);
     this->i2cPort = i2c0;
     this->address = VL53L0X_DEFAULT_ADDRESS;

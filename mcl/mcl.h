@@ -64,6 +64,7 @@ constexpr uint16_t PWM_FREQ_MOTOR_DRV8833 = 20000;
 using TExitCallback = std::function<bool (void)>;
 
 namespace mcl {
+
 #if defined (STM32) && defined (STM32H7)
 void ipc_send_message(const std::string& message) {
     int status = openamp_send_message(message.c_str(), message.size());
@@ -203,7 +204,7 @@ inline void initialize() {
     #endif
 }
 
-void send_discovery() {
+inline void send_discovery() {
     #if defined (PICO_CYW43_SUPPORTED)
     nanomsg::write_nano_msg_discovery(
         getInstance<tcp::server>()->self_ip, mcl::log::sink::net);
@@ -212,6 +213,32 @@ void send_discovery() {
     mcl::sleep_ms(2000);
 }
 
+} // namespace mcl
+
+inline void test_network_nanopb() {
+    #if defined(PICO_CYW43_SUPPORTED)
+    bool flag = false;
+    uint32_t counter = 1;
+    while (true) {
+        nanomsg::write_nano_msg_a("hello from pico !", mcl::log::sink::net);
+        nanomsg::write_nano_msg_b(counter++, mcl::log::sink::net);
+        nanomsg::write_nano_msg_c(flag = !flag, mcl::log::sink::net);
+        mcl::sleep_ms(1000);
+    }
+    #endif
+}
+
+inline void test_cdc_nanopb() {
+    #if defined (STM32)
+    bool flag = false;
+    uint32_t counter = 1;
+    while (true) {
+        nanomsg::write_nano_msg_a("hello from stm32 !", mcl::log::sink::cdc);
+        nanomsg::write_nano_msg_b(counter++, mcl::log::sink::cdc);
+        nanomsg::write_nano_msg_c(flag = !flag, mcl::log::sink::cdc);
+        mcl::sleep_ms(1000);
+    }
+    #endif
 }
 
 #endif

@@ -34,7 +34,7 @@ target_sources(
     ${CMAKE_SOURCE_DIR}/models/ServerManager.cpp
     ${CMAKE_SOURCE_DIR}/models/TcpServerManager.cpp
     ${CMAKE_SOURCE_DIR}/models/UdpServerManager.cpp
-    ${CMAKE_SOURCE_DIR}/models/SerialPortmanager.cpp
+    ${CMAKE_SOURCE_DIR}/models/SerialPortManager.cpp
 )
 
 target_include_directories(

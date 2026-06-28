@@ -19,7 +19,7 @@ struct bno55 : public bno {
 
     struct bno055_t _bno;
 
-    bno55(int sda, int scl, uint freq = 400*1000) : bno(sda, scl, freq) {
+    bno55(int sda, int scl, int freq = 400*1000) : bno(sda, scl, freq) {
         _bno.bus_read = bno55_i2c_read;
         _bno.bus_write = bno55_i2c_write;
         _bno.delay_msec = mcl::sleep_ms;

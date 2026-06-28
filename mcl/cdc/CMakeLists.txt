@@ -16,4 +16,4 @@ target_include_directories(
     ${CMSIS_ROOT}/Device/ST/cmsis_device_${CMSIS_LINE}/Include
 )
 
-target_link_libraries(cdc mcu.proto.lib)
+target_link_libraries(cdc PRIVATE mcu.proto.lib)

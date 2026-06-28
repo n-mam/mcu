@@ -18,7 +18,7 @@ struct MS5837 {
 	const uint8_t MS5837_02BA21 = 0x15; // Sensor version: From MS5837_02BA datasheet Version PROM Word 0
 	const uint8_t MS5837_30BA26 = 0x1A; // Sensor version: From MS5837_30BA datasheet Version PROM Word 0
 
-    MS5837(int sda, int scl, uint freq) :
+    MS5837(int sda, int scl, int freq) :
         _model(MS5837_UNKNOWN), fluidDensity(1029) {
         #if defined (STM32)
         i2c::initialize(sda, scl, freq, I2C1, GPIOB);

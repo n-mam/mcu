@@ -16,11 +16,11 @@
 
 namespace i2c {
 
-inline void initialize(int sda, int scl, uint freq
+inline void initialize(int sda, int scl, int freq,
     #if defined (STM32)
-    , I2C_TypeDef* I2Cx, GPIO_TypeDef *GPIOx) {
+    I2C_TypeDef* I2Cx, GPIO_TypeDef *GPIOx) {
     #elif defined (PICO)
-    , i2c_inst_t *I2Cx) {
+    i2c_inst_t *I2Cx) {
     #endif
         #if defined (PICO)
         i2c_init(I2Cx, freq);

@@ -8,7 +8,7 @@
 
 namespace mcl {
 
-inline void i2c_init(uint8_t scl, uint8_t sda, uint freq, I2C_TypeDef* I2Cx, GPIO_TypeDef *GPIOx) {
+inline void i2c_init(uint8_t scl, uint8_t sda, int freq, I2C_TypeDef* I2Cx, GPIO_TypeDef *GPIOx) {
     // Enable clock to GPIO
     enableClockForGpio(GPIOx);
 	// Clear mode first

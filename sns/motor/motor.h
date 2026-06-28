@@ -15,7 +15,9 @@ struct motor {
     bool _forward = true;
 
     motor(int pin1, int pin2, int frequency = 20000) :
-        _pwm_a(pin1, frequency), _pwm_b(pin2, frequency) {
+        _pwm_a(pin1, frequency),
+        _pwm_b(pin2, frequency) {
+
     }
 
     ~motor() {
@@ -95,6 +97,8 @@ inline auto initialize_rudder(int pin, int freq) {
     rudder->set_duty_cycle(1.5 / 20.0); // centre
     return rudder;
 }
+
+#include <motor/test.h>
 
 }
 

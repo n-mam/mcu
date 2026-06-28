@@ -14,5 +14,5 @@ elseif(CMSIS_TARGET STREQUAL "f446")
         HSE_VALUE=8000000
     )
 else()
-    message(FATAL_ERROR "Unknown F4 target")
+    message(FATAL_ERROR "Unknown F4 target ${CMSIS_TARGET}")
 endif()

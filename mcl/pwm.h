@@ -113,6 +113,95 @@ struct pwm {
     #endif
 };
 
+inline void test_led() {
+    mcl::pwm _pwm(5, PWM_FREQ_LED);
+    _pwm.start(100);
+    while (true) {
+        for (uint16_t i = 0; i < 100; i++) {
+            _pwm.set_duty_cycle(0.01 * i);
+            mcl::sleep_ms(50);
+        }
+        for (uint16_t i = 100; i > 0; i--) {
+            _pwm.set_duty_cycle(0.01 * i);
+            mcl::sleep_ms(50);
+        }
+    }
+}
+
+inline void toggle_default_led() {
+    #if defined (STM32F411xE)
+    // STM32F411CEU6 black pill
+    // Enable AHB1 clock to GPIO C
+    RCC->AHB1ENR |= RCC_AHB1ENR_GPIOCEN;
+    // Set GPIOC's pin 13 mode to GP output
+    GPIOC->MODER |= GPIO_MODER_MODER13_0;
+    // Set GPIOC's pin 13 to "very high" speed output
+	GPIOC->OSPEEDR |= GPIO_OSPEEDR_OSPEED13;
+    while (true) {
+        std::cout <<"toggle PC13" << std::endl;
+        GPIOC->ODR ^= (1 << 13);
+        // systick 1ms timer test
+        mcl::sleep_ms(500);
+    }
+    #elif defined (STM32F446xx)
+    // Enable AHB1 clock to GPIO A
+    RCC->AHB1ENR |= RCC_AHB1ENR_GPIOAEN;
+    // Set GPIOA's pin 5 mode to GP output
+    GPIOA->MODER |= GPIO_MODER_MODER5_0;
+    // Set GPIOA's pin 5 to "very high" speed output
+	GPIOA->OSPEEDR |= GPIO_OSPEEDR_OSPEED5;
+    while (true) {
+        std::cout <<"toggle PA5" << std::endl;
+        GPIOA->ODR ^= (1 << 5);
+        // systick 1ms timer test
+        mcl::sleep_ms(500);
+    }
+    #elif defined (STM32F7)
+    // NUCLEO-F767ZI STM32F767ZI
+    // User LD2: a blue user LED is connected to PB7
+    // Enable AHB1 clock to GPIO C
+    RCC->AHB1ENR |= RCC_AHB1ENR_GPIOBEN;
+    // Set GPIOB's pin 7 mode to GP output
+    GPIOB->MODER |= GPIO_MODER_MODER7_0;
+    // Set GPIOB's pin 7 to "very high" speed output
+	GPIOB->OSPEEDR |= GPIO_OSPEEDR_OSPEEDR7;
+    while (true) {
+        std::cout <<"toggle PB7" << std::endl;
+        GPIOB->ODR ^= (1 << 7);
+        // systick 1ms timer test
+        mcl::sleep_ms(500);
+    }
+    #elif defined (PICO)
+        #if defined(PICO_DEFAULT_LED_PIN)
+            // A device like Pico that uses a GPIO for the LED will define PICO_DEFAULT_LED_PIN
+            // so we can use normal GPIO functionality to turn the led on and off
+            gpio_init(PICO_DEFAULT_LED_PIN);
+            gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);
+        #elif defined(CYW43_WL_GPIO_LED_PIN)
+            // Unlike Pico, the on-board LED on Pico W is not connected to a
+            // pin on RP2040, but instead to a GPIO pin on the wireless chip
+        #endif
+        while (true) {
+            #if defined(PICO_DEFAULT_LED_PIN)
+                // Just set the GPIO on or off
+                gpio_put(PICO_DEFAULT_LED_PIN, 1);
+            #elif defined(CYW43_WL_GPIO_LED_PIN)
+                // Ask the wifi "driver" to set the GPIO on or off
+                cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 1);
+            #endif
+            mcl::sleep_ms(500);
+            #if defined(PICO_DEFAULT_LED_PIN)
+                // Just set the GPIO on or off
+                gpio_put(PICO_DEFAULT_LED_PIN, 0);
+            #elif defined(CYW43_WL_GPIO_LED_PIN)
+                // Ask the wifi "driver" to set the GPIO on or off
+                cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 0);
+            #endif
+            mcl::sleep_ms(500);
+        }
+    #endif
+}
+
 }
 
 #endif

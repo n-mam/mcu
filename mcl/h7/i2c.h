@@ -8,7 +8,7 @@
 
 namespace mcl {
 
-inline void i2c_init(uint8_t scl, uint8_t sda, uint freq, I2C_TypeDef* I2Cx, GPIO_TypeDef *GPIOx) {
+inline void i2c_init(uint8_t scl, uint8_t sda, int freq, I2C_TypeDef* I2Cx, GPIO_TypeDef *GPIOx) {
 	// Enable AHB1 clock to GPIO
 	if (GPIOx == GPIOA) {
     	RCC->AHB1ENR |= RCC_AHB4ENR_GPIOAEN;
