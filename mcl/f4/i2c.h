@@ -177,7 +177,7 @@ inline void i2c_bus_scan(I2C_TypeDef* I2Cx) {
     // I2C address range is from 8 to 119. Address 0 is reserved as
     // a broadcast address, addresses 1 to 7 are reserved for other
     // purposes, and addresses 120 to 127 are reserved for future use
-    i2c_init(6, 7, 400*1000, I2Cx, GPIOB);
+    i2c_init(6, 7, 400'000, I2Cx, GPIOB);
     //i2c_init(6, 7, 100*1000);
     for (uint8_t i = 8; i <= 119; i++) {
         auto rc = 0;

@@ -23,6 +23,7 @@ static constexpr
             {17,  mcl::test_bldc_trapezoidal_pwm },
             {18,  mcl::test_bldc_trapezoidal_pwm_comp },
             {19,  mcl::test_bldc_sinusoidal_wave },
+            {20,  test_mpu6050},
             #if defined(PICO)
             {99, []() {
                 watchdog_enable(3000, true);
@@ -36,7 +37,7 @@ int main(void) {
     auto *c = getInstance<config>();
     //while(!c->getKeyValue(config::key::action)) { mcl::send_discovery(); };
     while (true) {
-        auto action = 11; //static_cast<int>(c->getKeyValue(config::key::action));
+        auto action = 20; //static_cast<int>(c->getKeyValue(config::key::action));
         LOG << "waiting for new action.. " << action;
         auto it = std::ranges::find_if(dispatch_table,
             [action](const auto& e){ return e.first == action; });

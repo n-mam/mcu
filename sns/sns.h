@@ -58,9 +58,9 @@ inline auto create(Args&&... args) {
 
 inline void test_bno055() {
     #if defined (STM32)
-    auto imu = sensor::create<imu::bno55>(7, 6, 400*1000);
+    auto imu = sensor::create<imu::bno55>(7, 6, 400'000);
     #elif defined (PICO)
-    auto imu = sensor::create<imu::bno55>(16, 17, 400*1000);
+    auto imu = sensor::create<imu::bno55>(16, 17, 400'000);
     #endif
     while (true) {
         auto [gyro, accl, mag, sys] = imu->getCalibrationStatus();
@@ -82,9 +82,9 @@ inline void test_bno055() {
 
 inline void test_bno085() {
     #if defined (STM32)
-    auto imu = sensor::create<imu::bno85>(7, 6, 400*1000);
+    auto imu = sensor::create<imu::bno85>(7, 6, 400'000);
     #elif defined (PICO)
-    auto imu = sensor::create<imu::bno85>(16, 17, 400*1000);
+    auto imu = sensor::create<imu::bno85>(16, 17, 400'000);
     #endif
     while (true) {
         auto [h, p, r] = imu->getEulerAngles();
@@ -109,9 +109,9 @@ inline void test_hmc58883l() {
 
 inline void test_ms5837() {
     #if defined (STM32)
-    auto ms5837 = sensor::create<MS5837>(7, 6, 400*1000);
+    auto ms5837 = sensor::create<MS5837>(7, 6, 400'000);
     #elif defined (PICO)
-    auto ms5837 = sensor::create<MS5837>(16, 17, 400*1000);
+    auto ms5837 = sensor::create<MS5837>(16, 17, 400'000);
     #endif
     ms5837->init();
     mcl::sleep_ms(5000);
@@ -132,7 +132,7 @@ inline void test_vl53l0x() {
     #if defined (PICO)
     int i = 0;
     std::array<uint64_t, 5> mm;
-    auto tof = sensor::create<vl53l0x>(16, 17, 400*1000);
+    auto tof = sensor::create<vl53l0x>(16, 17, 400'000);
     while (!getInstance<config>()->shouldExit()) {
         auto d = tof->readRangeContinuousMillimeters();
         if (!tof->timeoutOccurred()) {
@@ -143,6 +143,21 @@ inline void test_vl53l0x() {
         mcl::sleep_ms(50);
     }
     #endif
+}
+
+inline void test_mpu6050() {
+    #if defined (STM32)
+    auto mpu = sensor::create<imu::mpu6050>(7, 6, 400'000);
+    #elif defined (PICO)
+    auto mpu = sensor::create<imu::mpu6050>(16, 17, 400'000);
+    #endif
+    mpu->initialize();
+    mpu->calibrate();
+    while (true) {
+        auto [ax, ay, az, gx, gy, gz] = mpu->read_calibrated();
+        LOG << "accl: " << ax << " " << ay << " " << az
+                << "| gyro: " << gx << " " << gy << " " << gz;
+    }
 }
 
 #endif

@@ -43,7 +43,7 @@ struct HMC5883L {
             {8.1,  {7 << 5, 4.35}}
         };
 
-    HMC5883L(int sda, int scl, int freq = 400*1000, double gain = 1.9) {
+    HMC5883L(int sda, int scl, int freq = 400'000, double gain = 1.9) {
         #if defined (PICO)
         i2c_init(i2c0, freq);
         gpio_set_function(sda, GPIO_FUNC_I2C);
