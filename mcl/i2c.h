@@ -14,13 +14,15 @@
 #include <mcl/h7/i2c.h>
 #endif
 
-namespace i2c {
+namespace serial {
 
-inline void initialize(int sda, int scl, int freq,
+struct i2c {
+
+i2c(int sda, int scl, int freq,
     #if defined (STM32)
-    I2C_TypeDef* I2Cx, GPIO_TypeDef *GPIOx) {
+        I2C_TypeDef* I2Cx, GPIO_TypeDef *GPIOx) {
     #elif defined (PICO)
-    i2c_inst_t *I2Cx) {
+        i2c_inst_t *I2Cx) {
     #endif
         #if defined (PICO)
         i2c_init(I2Cx, freq);
@@ -87,6 +89,8 @@ inline int8_t write(uint8_t dev_addr, uint8_t reg_addr, uint8_t *reg_data, uint1
     return stm_i2c_write(dev_addr, reg_addr, reg_data, len, sendReg);
     #endif
 }
+
+};
 
 }
 

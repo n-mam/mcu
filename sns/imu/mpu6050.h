@@ -7,6 +7,7 @@ namespace imu {
 
 struct mpu6050 {
 
+    serial::i2c *_i2c;
     // accl offsets
     float ax_offset = 0;
     float ay_offset = 0;
@@ -21,27 +22,21 @@ struct mpu6050 {
     static constexpr float GYRO_SCALE_INV = 1.0 / 131.0;
 
     template <typename T>
-    using XYZ = std::tuple<T, T, T, T, T, T>;
+    using MotionData = std::tuple<T, T, T, T, T, T>;
 
-    mpu6050(int sda, int scl, int freq = 400'000) {
-        #if defined (STM32)
-        i2c::initialize(sda, scl, freq, I2C1, GPIOB);
-        #elif defined (PICO)
-        i2c::initialize(sda, scl, freq, i2c0);
-        #endif
-    }
+    mpu6050(serial::i2c& bus) : _i2c(&bus) {}
 
     void initialize() {
         // wake up MPU6050
         uint8_t buf = 0x00;
-        i2c::write(MPU6050_I2C_ADDR, 0x6B, &buf, 1);
+        _i2c->write(MPU6050_I2C_ADDR, 0x6B, &buf, 1);
         // Accel ±2g
-        i2c::write(MPU6050_I2C_ADDR, 0x1C, &buf, 1);
+        _i2c->write(MPU6050_I2C_ADDR, 0x1C, &buf, 1);
         // Gyro ±250 deg/s
-        i2c::write(MPU6050_I2C_ADDR, 0x1B, &buf, 1);
+        _i2c->write(MPU6050_I2C_ADDR, 0x1B, &buf, 1);
         // DLPF ~44Hz (stable output)
         buf = 0x03;
-        i2c::write(MPU6050_I2C_ADDR, 0x1A, &buf, 1);
+        _i2c->write(MPU6050_I2C_ADDR, 0x1A, &buf, 1);
         mcl::sleep_ms(50);        
     }
 
@@ -84,22 +79,20 @@ struct mpu6050 {
         LOG << "valid samples = " << actual;
     }
     
-    auto read_raw() -> XYZ<int16_t> {
+    auto read_raw() -> MotionData<int16_t> {
         uint8_t b[14];
-        int16_t ax, ay, az;
-        int16_t gx, gy, gz;        
-        i2c::read(MPU6050_I2C_ADDR, 0x3B, b, 14);
-        ax = (int16_t)((b[0] << 8) | b[1]);
-        ay = (int16_t)((b[2] << 8) | b[3]);
-        az = (int16_t)((b[4] << 8) | b[5]);
-        // skip temp (b[6], b[7])
-        gx = (int16_t)((b[8] << 8) | b[9]);
-        gy = (int16_t)((b[10] << 8) | b[11]);
-        gz = (int16_t)((b[12] << 8) | b[13]);
-        return {ax, ay, az, gx, gy, gz};        
+        _i2c->read(MPU6050_I2C_ADDR, 0x3B, b, 14);
+        return {
+            (int16_t)((b[0] << 8) | b[1]),
+            (int16_t)((b[2] << 8) | b[3]),
+            (int16_t)((b[4] << 8) | b[5]),
+            // skip temp (b[6], b[7])
+            (int16_t)((b[8] << 8) | b[9]),
+            (int16_t)((b[10] << 8) | b[11]),
+            (int16_t)((b[12] << 8) | b[13])};
     }
 
-    auto read_calibrated() -> XYZ<float> {
+    auto read_calibrated() -> MotionData<float> {
         auto [ax, ay, az, gx, gy, gz] = read_raw();
         // offset correction and 
         // scale to physical units

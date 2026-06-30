@@ -57,11 +57,12 @@ inline auto create(Args&&... args) {
 } //namespace sensor
 
 inline void test_bno055() {
-    #if defined (STM32)
-    auto imu = sensor::create<imu::bno55>(7, 6, 400'000);
-    #elif defined (PICO)
-    auto imu = sensor::create<imu::bno55>(16, 17, 400'000);
+    #if defined (PICO)
+    serial::i2c bus(16, 17, 400'000, i2c0);
+    #elif defined (STM32)
+    serial::i2c bus(7, 6, 400'000, I2C1, GPIOB);
     #endif
+    auto imu = sensor::create<imu::bno55>(bus);
     while (true) {
         auto [gyro, accl, mag, sys] = imu->getCalibrationStatus();
         LOG << "{\"cal_gyro\":" << unsigned(gyro) << ", \"cal_acc\":" << unsigned(accl)
@@ -81,11 +82,12 @@ inline void test_bno055() {
 }
 
 inline void test_bno085() {
-    #if defined (STM32)
-    auto imu = sensor::create<imu::bno85>(7, 6, 400'000);
-    #elif defined (PICO)
-    auto imu = sensor::create<imu::bno85>(16, 17, 400'000);
+    #if defined (PICO)
+    serial::i2c bus(16, 17, 400'000, i2c0);
+    #elif defined (STM32)
+    serial::i2c bus(7, 6, 400'000, I2C1, GPIOB);
     #endif
+    auto imu = sensor::create<imu::bno85>(bus);
     while (true) {
         auto [h, p, r] = imu->getEulerAngles();
         std::ostringstream ss;
@@ -108,11 +110,12 @@ inline void test_hmc58883l() {
 }
 
 inline void test_ms5837() {
-    #if defined (STM32)
-    auto ms5837 = sensor::create<MS5837>(7, 6, 400'000);
-    #elif defined (PICO)
-    auto ms5837 = sensor::create<MS5837>(16, 17, 400'000);
+    #if defined (PICO)
+    serial::i2c bus(16, 17, 400'000, i2c0);
+    #elif defined (STM32)
+    serial::i2c bus(7, 6, 400'000, I2C1, GPIOB);
     #endif
+    auto ms5837 = sensor::create<MS5837>(bus);
     ms5837->init();
     mcl::sleep_ms(5000);
     ms5837->setModel(MS5837::MS5837_30BA);
@@ -146,11 +149,12 @@ inline void test_vl53l0x() {
 }
 
 inline void test_mpu6050() {
-    #if defined (STM32)
-    auto mpu = sensor::create<imu::mpu6050>(7, 6, 400'000);
-    #elif defined (PICO)
-    auto mpu = sensor::create<imu::mpu6050>(16, 17, 400'000);
+    #if defined (PICO)
+    serial::i2c bus(16, 17, 400'000, i2c0);
+    #elif defined (STM32)
+    serial::i2c bus(7, 6, 400'000, I2C1, GPIOB);
     #endif
+    auto mpu = sensor::create<imu::mpu6050>(bus);
     mpu->initialize();
     mpu->calibrate();
     while (true) {

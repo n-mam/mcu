@@ -19,7 +19,7 @@ struct bno55 : public bno {
 
     struct bno055_t _bno;
 
-    bno55(int sda, int scl, int freq = 400'000) : bno(sda, scl, freq) {
+    bno55(serial::i2c& bus) : bno(bus) {
         _bno.bus_read = bno55_i2c_read;
         _bno.bus_write = bno55_i2c_write;
         _bno.delay_msec = mcl::sleep_ms;
@@ -64,11 +64,11 @@ struct bno55 : public bno {
 };
 
 inline int8_t bno55_i2c_read(uint8_t dev_addr, uint8_t reg_addr, uint8_t *reg_data, uint8_t len) {
-    return i2c::read(dev_addr, reg_addr, reg_data, len);
+    return bno::_i2c->read(dev_addr, reg_addr, reg_data, len);
 }
 
 inline int8_t bno55_i2c_write(uint8_t dev_addr, uint8_t reg_addr, uint8_t *reg_data, uint8_t len) {
-    return i2c::write(dev_addr, reg_addr, reg_data, len);
+    return bno::_i2c->write(dev_addr, reg_addr, reg_data, len);
 }
 
 }

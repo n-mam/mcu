@@ -12,12 +12,10 @@ using CST = std::tuple<uint8_t, uint8_t, uint8_t, uint8_t>;
 
 struct bno {
 
-    bno(int sda, int scl, int freq = 400'000) {
-        #if defined (STM32)
-        i2c::initialize(sda, scl, freq, I2C1, GPIOB);
-        #elif defined (PICO)
-        i2c::initialize(sda, scl, freq, i2c0);
-        #endif
+    static serial::i2c *_i2c;
+
+    bno(serial::i2c& bus) {
+        _i2c = &bus;
     }
 
     ~bno() {}
@@ -26,5 +24,7 @@ struct bno {
     virtual auto getEulerAngles() -> YPR = 0;
     virtual auto getCalibrationStatus() -> CST = 0;
 };
+
+serial::i2c *bno::_i2c = nullptr;
 
 #endif

@@ -41,7 +41,7 @@ struct bno85 : public bno {
     sh2_Hal_t _sh2_hal;
     sh2_ProductIds_t _prodIds;
 
-    bno85(int sda, int scl, int freq) : bno(sda, scl, freq) {}
+    bno85(serial::i2c& bus) : bno(bus) {}
 
     bool init_i2c_hal() {
         if (!hal_reset()) return false;
@@ -148,11 +148,11 @@ struct bno85 : public bno {
 
 inline void readAdvertisement() {
     uint8_t shtp_header[4];
-    i2c::read(BNO085_I2C_ADDR, 0, shtp_header, 4, false);
+    bno::_i2c->read(BNO085_I2C_ADDR, 0, shtp_header, 4, false);
     uint16_t len = (uint16_t)shtp_header[1] << 8 | (uint16_t)shtp_header[0];
     len &= 0x7FFF;
     uint8_t advertisement[512];
-    i2c::read(BNO085_I2C_ADDR, 0, advertisement, len, false);
+    bno::_i2c->read(BNO085_I2C_ADDR, 0, advertisement, len, false);
 }
 
 inline bool hal_reset() {
@@ -233,7 +233,7 @@ inline void bno85_i2c_close(sh2_Hal_t *self) {
 inline int bno85_i2c_read(sh2_Hal_t *self, uint8_t *buffer, unsigned len, uint32_t *t_us) {
     *t_us = getTimeUs(self);
     uint8_t header[4];
-    i2c::read(BNO085_I2C_ADDR, 0, header, 4, false);
+    bno::_i2c->read(BNO085_I2C_ADDR, 0, header, 4, false);
     // Determine amount to read
     uint16_t packet_size = (uint16_t)header[0] | (uint16_t)header[1] << 8;
     // Unset the "continue" bit
@@ -256,7 +256,7 @@ inline int bno85_i2c_read(sh2_Hal_t *self, uint8_t *buffer, unsigned len, uint32
         } else {
             read_size = std::min(i2c_buffer_max, (size_t)cargo_remaining + 4);
         }
-        i2c::read(BNO085_I2C_ADDR, 0, i2c_buffer, read_size, false);
+        bno::_i2c->read(BNO085_I2C_ADDR, 0, i2c_buffer, read_size, false);
         if (first_read) {
             // The first time we're saving the "original" header, so include it in the
             // cargo count
@@ -280,7 +280,7 @@ inline int bno85_i2c_read(sh2_Hal_t *self, uint8_t *buffer, unsigned len, uint32
 
 inline int bno85_i2c_write(sh2_Hal_t *self, uint8_t *buffer, unsigned len) {
     uint16_t length = (len > SH2_HAL_MAX_TRANSFER_OUT) ? SH2_HAL_MAX_TRANSFER_OUT : len;
-    i2c::write(BNO085_I2C_ADDR, 0, buffer, length, false);
+    bno::_i2c->write(BNO085_I2C_ADDR, 0, buffer, length, false);
     return length;
 }
 

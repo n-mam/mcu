@@ -18,24 +18,18 @@ struct MS5837 {
 	const uint8_t MS5837_02BA21 = 0x15; // Sensor version: From MS5837_02BA datasheet Version PROM Word 0
 	const uint8_t MS5837_30BA26 = 0x1A; // Sensor version: From MS5837_30BA datasheet Version PROM Word 0
 
-    MS5837(int sda, int scl, int freq) :
-        _model(MS5837_UNKNOWN), fluidDensity(1029) {
-        #if defined (STM32)
-        i2c::initialize(sda, scl, freq, I2C1, GPIOB);
-        #elif defined (PICO)
-        i2c::initialize(sda, scl, freq, i2c0);
-        #endif
-    }
+    MS5837(serial::i2c& bus) : _i2c(&bus),
+        _model(MS5837_UNKNOWN), fluidDensity(1029) {}
 
     bool init() {
         // Reset the MS5837
-        i2c::write(MS5837_ADDR, MS5837_RESET, NULL, 0);
+        _i2c->write(MS5837_ADDR, MS5837_RESET, NULL, 0);
         // Wait for reset to complete
         mcl::sleep_ms(100);
         // Read calibration values and CRC
         for (uint8_t i = 0; i < 7; i++) {
             uint8_t buf[2];
-            i2c::read(MS5837_ADDR, MS5837_PROM_READ + i * 2, buf, 2);
+            _i2c->read(MS5837_ADDR, MS5837_PROM_READ + i * 2, buf, 2);
             C[i] = ((uint16_t)buf[0] << 8) | (uint16_t)buf[1];
         }
         // Verify data with CRC
@@ -71,21 +65,21 @@ struct MS5837 {
 
     void read() {
         // Request D1 conversion
-        i2c::write(MS5837_ADDR, MS5837_CONVERT_D1_8192, NULL, 0);
+        _i2c->write(MS5837_ADDR, MS5837_CONVERT_D1_8192, NULL, 0);
         // Max conversion time
         mcl::sleep_ms(20);
 
         uint8_t buf[3];
-        i2c::read(MS5837_ADDR, MS5837_ADC_READ, buf, 3);
+        _i2c->read(MS5837_ADDR, MS5837_ADC_READ, buf, 3);
         D1_pres = ((uint32_t)buf[0] << 16) | ((uint32_t)buf[1] << 8) | (uint32_t)buf[2];
 
         // Request D2 conversion
-        i2c::write(MS5837_ADDR, MS5837_CONVERT_D2_8192, NULL, 0);
+        _i2c->write(MS5837_ADDR, MS5837_CONVERT_D2_8192, NULL, 0);
         // Max conversion time
         mcl::sleep_ms(20);
 
         memset(buf, 0, 3);
-        i2c::read(MS5837_ADDR, MS5837_ADC_READ, buf, 3);
+        _i2c->read(MS5837_ADDR, MS5837_ADC_READ, buf, 3);
         D2_temp = ((uint32_t)buf[0] << 16) | ((uint32_t)buf[1] << 8) | (uint32_t)buf[2];
 
         calculate();
@@ -112,6 +106,7 @@ struct MS5837 {
     int32_t P;
     int32_t TEMP;
     uint16_t C[8];
+    serial::i2c *_i2c;
     uint8_t _model;
     float fluidDensity;
     uint32_t D1_pres, D2_temp;
