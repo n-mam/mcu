@@ -158,9 +158,9 @@ inline void test_mpu6050() {
     mpu->initialize();
     mpu->calibrate();
     while (true) {
-        auto [ax, ay, az, gx, gy, gz] = mpu->read_calibrated();
-        LOG << "accl: " << ax << " " << ay << " " << az
-                << "| gyro: " << gx << " " << gy << " " << gz;
+        auto [ts, ax, ay, az, gx, gy, gz] = mpu->read_calibrated();
+        LOG << " " << ts << "," << ax << "," << ay << "," << az << ","
+                << gx << "," << gy << "," << gz;
     }
 }
 

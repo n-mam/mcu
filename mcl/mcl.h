@@ -118,7 +118,7 @@ inline void initialize_logging(mcl::log::level l) {
     #if defined (PICO_CYW43_SUPPORTED)
     auto server = getInstance<tcp::server>();
     server->setRecvCallback(serverCallback);
-    server->start("AirFiber-AERx73", "paeKahng7ao9to9x");
+    server->start("NETGEAR65", "giganticairplane617");
     #endif
     log::setLogLevel(l);
     log::setLogSink<std::string>(
@@ -134,13 +134,13 @@ inline void initialize_logging(mcl::log::level l) {
                 stlink_uart(log.c_str());
                 #endif
             } else if (sink == mcl::log::sink::con) {
-                #if defined (PICO_CYW43_SUPPORTED)
-                nanomsg::write_nano_msg_log(log.c_str(), mcl::log::sink::net);
-                #elif defined (STM32F411xE)
-                cdc_write_data(log.c_str(), log.size());
-                #else
-                std::cout << mcl::time_ms() << ": " << log << std::endl;
-                #endif
+                // #if defined (PICO_CYW43_SUPPORTED)
+                // nanomsg::write_nano_msg_log(log.c_str(), mcl::log::sink::net);
+                // #elif defined (STM32F411xE)
+                // cdc_write_data(log.c_str(), log.size());
+                // #else
+                std::cout << /*mcl::time_ms() << ": " <<*/ log << std::endl;
+                //#endif
             } else if (sink == mcl::log::sink::c2c) {
                 #if defined (STM32) && defined (STM32H7)
                 ipc_send_message(log);

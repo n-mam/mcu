@@ -24,13 +24,13 @@ inline auto get_tick() {
 
 inline uint64_t time_ms() {
     #if defined (PICO)
-    return time_us_64() / 1000;
+        return time_us_64() / 1000;
     #elif defined (STM32)
-    return get_tick();
+        return get_tick();
     #endif
 }
 
-void delay_us(uint32_t us) {
+inline void delay_us(uint32_t us) {
     #if defined STM32
     uint32_t start = DWT->CYCCNT;
     uint32_t ticks = us * (SystemCoreClock / 1000000);
@@ -115,7 +115,7 @@ inline uint32_t apb2PeripheralClock() {
 }
 
 #if defined(STM32F4) || defined(STM32F7)
-void configure_flash() {
+inline void configure_flash() {
     #if defined (STM32F4)
     // Enable prefetch
     FLASH->ACR |= FLASH_ACR_PRFTEN;
@@ -143,7 +143,7 @@ void configure_flash() {
     #endif
 }
 
-void configure_pll(const std::vector<uint16_t> factors) {
+inline void configure_pll(const std::vector<uint16_t> factors) {
     uint16_t M, N, P, Q, R;
     M = N = P = Q = R = 0;
     if (factors.size() > 0) M = factors[0];

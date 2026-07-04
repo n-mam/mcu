@@ -26,15 +26,14 @@ Qt will be installed into 'D:/qt-6.5.3/install'
 
 ```sh
 cd auv/app && mkdir build && cd build
-SET Qt6_DIR=D:\qt-6.5.3\install\lib\cmake\Qt6
+SET Qt6_DIR=D:\QT-6.9.0\install\lib\cmake\Qt6
 export Qt6_DIR=/home/nmam/Qt/6.9.1/gcc_64/lib/cmake/Qt6
-SET Qt6QmlTools_DIR=D:\qt-6.5.3\install\lib\cmake\Qt6QmlTools
 cmake -DNANOPB_SRC_ROOT_FOLDER=D:/nanopb-0.4.9.1 ..
 cmake -DNANOPB_SRC_ROOT_FOLDER=/home/nmam/code/nanopb-0.4.9.1/nanopb ..
 cmake --build . --config Release
 
 Run
-SET PATH=%PATH%;D:\qt-6.5.3\install\bin
+SET PATH=%PATH%;D:\Qt-6.9.0\install\bin
 build\Release\app.exe
 ```
 

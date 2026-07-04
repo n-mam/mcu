@@ -22,7 +22,7 @@ struct mpu6050 {
     static constexpr float GYRO_SCALE_INV = 1.0 / 131.0;
 
     template <typename T>
-    using MotionData = std::tuple<T, T, T, T, T, T>;
+    using MotionData = std::tuple<uint64_t, T, T, T, T, T, T>;
 
     mpu6050(serial::i2c& bus) : _i2c(&bus) {}
 
@@ -48,7 +48,7 @@ struct mpu6050 {
         int32_t a[3] = {0, 0, 0};
         int32_t g[3] = {0, 0, 0};
         for (int i = 0; i < samples; i++) {
-            auto [ax, ay, az, gx, gy, gz] = 
+            auto [ts, ax, ay, az, gx, gy, gz] = 
                 read_raw();
             ++actual;
             a[0] += ax;
@@ -78,11 +78,12 @@ struct mpu6050 {
         LOG << "gz_offset = " << gz_offset;
         LOG << "valid samples = " << actual;
     }
-    
+
     auto read_raw() -> MotionData<int16_t> {
         uint8_t b[14];
         _i2c->read(MPU6050_I2C_ADDR, 0x3B, b, 14);
         return {
+            mcl::time_ms(),
             (int16_t)((b[0] << 8) | b[1]),
             (int16_t)((b[2] << 8) | b[3]),
             (int16_t)((b[4] << 8) | b[5]),
@@ -93,10 +94,10 @@ struct mpu6050 {
     }
 
     auto read_calibrated() -> MotionData<float> {
-        auto [ax, ay, az, gx, gy, gz] = read_raw();
+        auto [ts, ax, ay, az, gx, gy, gz] = read_raw();
         // offset correction and 
         // scale to physical units
-        return {
+        return {ts,
             (ax - ax_offset) * ACC_SCALE_INV,
             (ay - ay_offset) * ACC_SCALE_INV,
             (az - az_offset) * ACC_SCALE_INV,

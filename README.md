@@ -47,6 +47,7 @@ SET PICO_BOARD=PICO_W (if building for pico-w and "pico2" or "pico2_w" for the r
 SET PICO_TOOLCHAIN_PATH=D:\arm-none-eabi-14.2.1
 cmake -G "Ninja" -DPLATFORM=PICO -DNANOPB_SRC_ROOT_FOLDER=D:/nanopb-0.4.9.1  ..
 cmake --build .
+NOTE: for pico-w and pico-2w, please change the wifi SSID and password in initialize_logging() function in mcl.h
 ```
 
 #### STM32
