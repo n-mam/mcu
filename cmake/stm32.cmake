@@ -16,7 +16,7 @@ add_link_options(
     --specs=nosys.specs
     -Wl,-Map=mcu.map -Wl,--gc-sections
     -T${CMAKE_SOURCE_DIR}/mcl/${CMSIS_LINE}/${CMSIS_CORE}/linker.ld
-    -specs=rdimon.specs -lc -lrdimon #--> uncomment this for semihosting
+    #-specs=rdimon.specs -lc -lrdimon #--> uncomment this for semihosting
 )
 
 include(cmake/stm32_${CMSIS_LINE}.cmake)

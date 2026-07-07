@@ -44,6 +44,7 @@ extern "C" void cdc_write_data(const char *, size_t);
 #include <npb/nm.h>
 #include <mcl/log.h>
 #include <mcl/fx/clock.h>
+#include <mcl/serial.h>
 
 // pins
 constexpr uint8_t IR_PIN = 2;
@@ -114,11 +115,17 @@ bool uart_message_timer(__unused struct repeating_timer *t) {
 }
 #endif
 
+mcl::serial *p_serial = nullptr;
+
 inline void initialize_logging(mcl::log::level l) {
     #if defined (PICO_CYW43_SUPPORTED)
     auto server = getInstance<tcp::server>();
     server->setRecvCallback(serverCallback);
     server->start("NETGEAR65", "giganticairplane617");
+    #endif
+    #if defined (STM32F446xx)
+    // Create VCP USART instance with TX on PA2, RX on PA3
+    p_serial = new mcl::serial(2, 3, 115200, 8, false);
     #endif
     log::setLogLevel(l);
     log::setLogSink<std::string>(
@@ -130,17 +137,23 @@ inline void initialize_logging(mcl::log::level l) {
                 cyw43_poll();
                 #endif
             } else if (sink == mcl::log::sink::uart) {
-                #if defined(STM32H7)
+                #if defined(STM32F446xx)
+                p_serial->transmit((const uint8_t *)log.c_str(), log.size());
+                #elif defined(STM32H7)
+                // only for F446RE which has usb 
+                // to usart bridge over stlink. 
                 stlink_uart(log.c_str());
                 #endif
             } else if (sink == mcl::log::sink::con) {
-                // #if defined (PICO_CYW43_SUPPORTED)
-                // nanomsg::write_nano_msg_log(log.c_str(), mcl::log::sink::net);
-                // #elif defined (STM32F411xE)
-                // cdc_write_data(log.c_str(), log.size());
-                // #else
+                #if defined (PICO_CYW43_SUPPORTED)
+                nanomsg::write_nano_msg_log(log.c_str(), mcl::log::sink::net);
+                #elif defined (STM32F411xE)
+                cdc_write_data(log.c_str(), log.size());
+                #elif defined (STM32F446xx)
+                p_serial->transmit((const uint8_t *)(log + "\n").c_str(), log.size() + 1);
+                #else
                 std::cout << /*mcl::time_ms() << ": " <<*/ log << std::endl;
-                //#endif
+                #endif
             } else if (sink == mcl::log::sink::c2c) {
                 #if defined (STM32) && defined (STM32H7)
                 ipc_send_message(log);
@@ -182,7 +195,7 @@ inline void initialize() {
     #endif
     #if defined (STM32F4)
     // Initialize semihosting
-    initialise_monitor_handles();
+    // initialise_monitor_handles();
     #endif
     #ifndef STM32H7
     // Enable 1ms systick interrupts

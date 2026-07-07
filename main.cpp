@@ -1,5 +1,4 @@
 #include <sns/sns.h>
-#include <mcl/serial.h>
 
 static constexpr
     std::pair<int, void(*)()>

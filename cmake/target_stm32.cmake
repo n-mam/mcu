@@ -38,7 +38,7 @@ target_sources(
     mcu
     PRIVATE
     ${SOURCE_FILES}
-    #${CMAKE_SOURCE_DIR}/mcl/fx/syscalls.c #comment this for semihosting
+    ${CMAKE_SOURCE_DIR}/mcl/fx/syscalls.c #comment this for semihosting
 )
 
 target_include_directories(
