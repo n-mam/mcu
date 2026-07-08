@@ -99,12 +99,17 @@ inline void test_bno085() {
 }
 
 inline void test_hmc58883l() {
-    imu::HMC5883L compass(20, 21) ;
-    compass.setDeclination(4);
-    //compass.calibrate(2000);
+    #if defined (PICO)
+    serial::i2c bus(16, 17, 400'000, i2c0);
+    #elif defined (STM32)
+    serial::i2c bus(7, 6, 400'000, I2C1, GPIOB);
+    #endif
+    auto compass = sensor::create<imu::HMC5883L>(bus);
+    compass->setDeclination(4);
+    compass->calibrate(2000);
     while (true) {
-        auto heading = compass.getHeading();
-        printf("heading: %f\n", heading);
+        auto heading = compass->getHeading();
+        LOG << "heading: " << heading;
         mcl::sleep_ms(700);
     }
 }

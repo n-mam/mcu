@@ -30,6 +30,7 @@ struct HMC5883L {
 
     double _gain = 1.9;
     double _decl = 0.0;
+    serial::i2c *_i2c;
 
     std::map<double, std::pair<uint8_t, double>>
         _gain_map = {
@@ -43,47 +44,37 @@ struct HMC5883L {
             {8.1,  {7 << 5, 4.35}}
         };
 
-    HMC5883L(int sda, int scl, int freq = 400'000, double gain = 1.9) {
-        #if defined (PICO)
-        i2c_init(i2c0, freq);
-        gpio_set_function(sda, GPIO_FUNC_I2C);
-        gpio_set_function(scl, GPIO_FUNC_I2C);
-        gpio_pull_up(sda);
-        gpio_pull_up(scl);
+    HMC5883L(serial::i2c& bus, double gain = 1.9) : _gain(gain), _i2c(&bus) {
         uint8_t buf1[2] = {HMC5883L_CONFIG_REG_A, 0b01110000};
-        i2c_write_blocking(i2c0, HMC5883L_ADDR, buf1, 2, true);
-        uint8_t buf3[2] = {HMC5883L_CONFIG_REG_B, _gain_map[_gain].first};  // 1.9 gauss gain
-        i2c_write_blocking(i2c0, HMC5883L_ADDR, buf3, 2, true);
-        uint8_t buf2[2] = {HMC5883L_CONFIG_REG_MODE, 0x00};
-        i2c_write_blocking(i2c0, HMC5883L_ADDR, buf2, 2, false);
+        _i2c->write(HMC5883L_ADDR, buf1[0], buf1 + 1, 1);
+        uint8_t buf2[2] = {HMC5883L_CONFIG_REG_B, _gain_map[_gain].first};  // 1.9 gauss gain
+        _i2c->write(HMC5883L_ADDR, buf2[0], buf2 + 1, 1);
+        uint8_t buf3[2] = {HMC5883L_CONFIG_REG_MODE, 0x00};
+        _i2c->write(HMC5883L_ADDR, buf3[0], buf3 + 1, 1);
         mcl::sleep_ms(12);
-        #endif
     }
 
     auto readMagRaw() {
         uint8_t buf[6] = { 0 };
-        #if defined (PICO)
-        i2c_write_blocking(i2c0, HMC5883L_ADDR, &DATA_OUTPUT_X_MSB_REG, 1, true);
-        i2c_read_blocking(i2c0, HMC5883L_ADDR, buf, 6, false);
-        #endif
-        int16_t x = ((uint16_t)buf[0] << 8) | (uint16_t)buf[1];
-        int16_t y = ((uint16_t)buf[4] << 8) | (uint16_t)buf[5];
-        int16_t z = ((uint16_t)buf[2] << 8) | (uint16_t)buf[3];
-        printf("x_raw %d, y_raw %d, z_raw %d\n", x, y, z);
-        if (x & (1 << 15)) x = x - (1 << 16);
-        if (y & (1 << 15)) y = y - (1 << 16);
-        if (z & (1 << 15)) z = z - (1 << 16);
-        x *= _gain_map[_gain].second;
-        y *= _gain_map[_gain].second;
-        z *= _gain_map[_gain].second;
+        _i2c->read(HMC5883L_ADDR, DATA_OUTPUT_X_MSB_REG, buf, 6);
+        int16_t raw_x = ((uint16_t)buf[0] << 8) | (uint16_t)buf[1];
+        int16_t raw_y = ((uint16_t)buf[4] << 8) | (uint16_t)buf[5];
+        int16_t raw_z = ((uint16_t)buf[2] << 8) | (uint16_t)buf[3];
+        LOG << "x_raw " << raw_x << ", y_raw " << raw_y << ", z_raw " << raw_z;
+        // if (x & (1 << 15)) x = x - (1 << 16);
+        // if (y & (1 << 15)) y = y - (1 << 16);
+        // if (z & (1 << 15)) z = z - (1 << 16);
+        double x = raw_x * _gain_map[_gain].second;
+        double y = raw_y * _gain_map[_gain].second;
+        double z = raw_z * _gain_map[_gain].second;
         return std::make_tuple(x, y, z);
     }
 
     auto readMagnetometer() {
         auto [x_raw, y_raw, z_raw] = readMagRaw();
-        auto x = (x_raw * x_scale) + x_bias;
-        auto y = (y_raw * y_scale) + y_bias;
-        auto z = (z_raw * z_scale) + z_bias;
+        double x = (x_raw - x_bias) * x_scale;
+        double y = (y_raw - y_bias) * y_scale;
+        double z = (z_raw - z_bias) * z_scale;
         return std::make_tuple(x, y, z);
     }
 
@@ -101,11 +92,10 @@ struct HMC5883L {
     }
 
     auto calibrate(int count) {
-        int16_t min_x, min_y, min_z;
-        int16_t max_x, max_y, max_z;
+        double min_x, min_y, min_z;
+        double max_x, max_y, max_z;
         min_x = min_y = min_z = 32767;
         max_x = max_y = max_z = -32767;
-        printf("x,y,z\n");
         for (int i = 0; i < count; i++) {
             auto [x, y, z] = readMagRaw();
             min_x = std::min(min_x, x);
@@ -114,7 +104,7 @@ struct HMC5883L {
             max_x = std::max(max_x, x);
             max_y = std::max(max_y, y);
             max_z = std::max(max_z, z);
-            printf("%d, %d, %d\n", x, y, z);
+            LOG << "x " << x << ", y " << y << ", z " << z;
             // 75Hz ODR in continious mode
             // means ~15ms wait per reading
             mcl::sleep_ms(15);
@@ -131,15 +121,14 @@ struct HMC5883L {
         x_scale = avg_delta / avg_delta_x;
         y_scale = avg_delta / avg_delta_y;
         z_scale = avg_delta / avg_delta_z;
-        printf("-------------------------\n");
-        printf("x_bias %f\n", x_bias);
-        printf("y_bias %f\n", y_bias);
-        printf("z_bias %f\n", z_bias);
-        printf("x_scale %f\n", x_scale);
-        printf("y_scale %f\n", y_scale);
-        printf("z_scale %f\n", z_scale);
-        printf("-------------------------\n");
-
+        LOG << "-------------------------";
+        LOG << "x_bias " << x_bias;
+        LOG << "y_bias " << y_bias;
+        LOG << "z_bias " << z_bias;
+        LOG << "x_scale " << x_scale;
+        LOG << "y_scale " << y_scale;
+        LOG << "z_scale " << z_scale;
+        LOG << "-------------------------";
     }
 
     auto setDeclination(double d) {

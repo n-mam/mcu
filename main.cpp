@@ -36,7 +36,7 @@ int main(void) {
     auto *c = getInstance<config>();
     //while(!c->getKeyValue(config::key::action)) { mcl::send_discovery(); };
     while (true) {
-        auto action = 20; //static_cast<int>(c->getKeyValue(config::key::action));
+        auto action = 8; //static_cast<int>(c->getKeyValue(config::key::action));
         LOG << "waiting for new action.. " << action;
         auto it = std::ranges::find_if(dispatch_table,
             [action](const auto& e){ return e.first == action; });
