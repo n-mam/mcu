@@ -19,12 +19,12 @@ inline void i2c_init(uint8_t scl, uint8_t sda, int freq, I2C_TypeDef* I2Cx, GPIO
 	if (sda < 8) {
         GPIOx->AFR[0] |= (0b0100 << (sda * 4));
 	} else {
-		GPIOx->AFR[1] |= (0b0100 << (sda * 4));
+		GPIOx->AFR[1] |= (0b0100 << ((sda - 8) * 4));
 	}
 	if (scl < 8) {
         GPIOx->AFR[0] |= (0b0100 << (scl * 4));
 	} else {
-		GPIOx->AFR[1] |= (0b0100 << (scl * 4));
+		GPIOx->AFR[1] |= (0b0100 << ((scl - 8) * 4));
 	}
     // Set both pins as open drain
     GPIOx->OTYPER |= (0b1 << scl) | (0b1 << sda);
@@ -87,7 +87,7 @@ inline void i2c_deinit() {
 
 }
 
-void send_device_address(uint8_t dev_addr, uint8_t rw, I2C_TypeDef* I2Cx = I2C1) {
+void send_device_address(uint8_t dev_addr, uint8_t rw, I2C_TypeDef* I2Cx) {
     // Send device address with read/write bit set/unset respectively
     I2Cx->DR = (dev_addr << 1) | rw;
     while (!(I2Cx->SR1 & I2C_SR1_ADDR)) {};
@@ -95,7 +95,7 @@ void send_device_address(uint8_t dev_addr, uint8_t rw, I2C_TypeDef* I2Cx = I2C1)
     (void)I2Cx->SR2;
 }
 
-inline void i2c_start(I2C_TypeDef* I2Cx = I2C1) {
+inline void i2c_start(I2C_TypeDef* I2Cx) {
     // Wait until the BUSY flag is cleared
     // while (I2Cx->SR2 & I2C_SR2_BUSY) { std::cout << I2Cx->SR2 << std::endl; }
     // Set the START bit in CR1 register to initiate start condition
@@ -104,7 +104,7 @@ inline void i2c_start(I2C_TypeDef* I2Cx = I2C1) {
     while (!(I2Cx->SR1 & I2C_SR1_SB)) {}
 }
 
-inline void i2c_stop(I2C_TypeDef* I2Cx = I2C1) {
+inline void i2c_stop(I2C_TypeDef* I2Cx) {
     // Set the STOP bit in CR1 register to initiate stop condition
     I2Cx->CR1 |= I2C_CR1_STOP;
     // Wait until the STOP bit is cleared
@@ -113,11 +113,11 @@ inline void i2c_stop(I2C_TypeDef* I2Cx = I2C1) {
     while (I2Cx->SR2 & I2C_SR2_BUSY) {}
 }
 
-inline int8_t i2c_write(uint8_t dev_addr, uint8_t mem_addr, uint8_t *data, uint8_t len, bool sendReg, I2C_TypeDef* I2Cx = I2C1) {
+inline int8_t i2c_write(uint8_t dev_addr, uint8_t mem_addr, uint8_t *data, uint8_t len, bool sendReg, I2C_TypeDef* I2Cx) {
     // Start condition
-    i2c_start();
+    i2c_start(I2Cx);
     // Send device address with write bit set
-    send_device_address(dev_addr, 0x00);
+    send_device_address(dev_addr, 0x00, I2Cx);
     if (sendReg) {
         // Send memory address
         I2Cx->DR = mem_addr;
@@ -131,24 +131,24 @@ inline int8_t i2c_write(uint8_t dev_addr, uint8_t mem_addr, uint8_t *data, uint8
         while (!(I2Cx->SR1 & I2C_SR1_BTF)) {}
     }
     // Stop condition
-    i2c_stop();
+    i2c_stop(I2Cx);
     return len;
 }
 
-inline int8_t i2c_read(uint8_t dev_addr, uint8_t mem_addr, uint8_t *data, uint16_t len, bool sendReg, I2C_TypeDef* I2Cx = I2C1) {
+inline int8_t i2c_read(uint8_t dev_addr, uint8_t mem_addr, uint8_t *data, uint16_t len, bool sendReg, I2C_TypeDef* I2Cx) {
     // Start condition
-    i2c_start();
+    i2c_start(I2Cx);
     if (sendReg) {
         // Send device address with write bit set
-        send_device_address(dev_addr, 0x00);
+        send_device_address(dev_addr, 0x00, I2Cx);
         // Send memory address
         I2Cx->DR = mem_addr;
         while (!(I2Cx->SR1 & I2C_SR1_BTF)) {}
         // Repeated Start condition
-        i2c_start();
+        i2c_start(I2Cx);
     }
     // Send device address with read bit set
-    send_device_address(dev_addr, 0x01);
+    send_device_address(dev_addr, 0x01, I2Cx);
     // Enable ACK
     I2Cx->CR1 |= I2C_CR1_ACK;
     // Read data
@@ -157,7 +157,7 @@ inline int8_t i2c_read(uint8_t dev_addr, uint8_t mem_addr, uint8_t *data, uint16
             // After second last byte: Disable ACK
             I2Cx->CR1 &= ~I2C_CR1_ACK;
             // After second last byte: Generate Stop condition
-            i2c_stop();
+            i2c_stop(I2Cx);
             // Wait for RXNE flag to be set
             while (!(I2Cx->SR1 & I2C_SR1_RXNE)) {};
             data[i] = I2Cx->DR;
@@ -182,7 +182,7 @@ inline void i2c_bus_scan(I2C_TypeDef* I2Cx) {
     for (uint8_t i = 8; i <= 119; i++) {
         auto rc = 0;
         // Generate start condition
-        i2c_start();
+        i2c_start(I2Cx);
         // Send device address with write bit set
         I2Cx->DR = (i << 1) | 0;
         // Wait for end of address transmission
@@ -199,7 +199,7 @@ inline void i2c_bus_scan(I2C_TypeDef* I2Cx) {
         // Clear ADDR flag
         (void)I2Cx->SR2;
         // Generate stop condition
-        i2c_stop();
+        i2c_stop(I2Cx);
         if (rc == 0) {
             LOG << "I2C device detected at bus address: " << std::hex << (unsigned)i;
         }

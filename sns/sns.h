@@ -169,4 +169,36 @@ inline void test_mpu6050() {
     }
 }
 
+inline void test_mahony() {
+    // MPU6050
+    #if defined (PICO)
+    serial::i2c bus1(16, 17, 400'000, i2c0);
+    #elif defined (STM32)
+    serial::i2c bus1(7, 6, 400'000, I2C1, GPIOB);
+    #endif
+    auto mpu = sensor::create<imu::mpu6050>(bus1);
+    mpu->initialize();
+    mpu->calibrate();
+    // HMC5883L
+    #if defined (PICO)
+    serial::i2c bus2(16, 17, 400'000, i2c0);
+    #elif defined (STM32)
+    serial::i2c bus2(3, 10, 400'000, I2C2, GPIOB);
+    #endif
+    auto mag = sensor::create<imu::HMC5883L>(bus2);
+    mag->setDeclination(4);
+    mag->calibrate(2000);
+    while (true) {
+        //double gx, gy, gz; gx = gy = gz = 0.0;
+        //double ax, ay, az; ax = ay = az = 0.0;
+        //double mx, my, mz; mx = my = mz = 0.0;
+        auto [mx, my, mz] = mag->readMagnetometer();
+        auto [ts, ax, ay, az, gx, gy, gz] = mpu->read_calibrated();
+        LOG << " " << ts << ","
+            << ax << "," << ay << "," << az << ","
+                << gx << "," << gy << "," << gz << ","
+                    << mx << "," << my << "," << mz;
+    }
+}
+
 #endif

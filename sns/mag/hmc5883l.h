@@ -60,10 +60,6 @@ struct HMC5883L {
         int16_t raw_x = ((uint16_t)buf[0] << 8) | (uint16_t)buf[1];
         int16_t raw_y = ((uint16_t)buf[4] << 8) | (uint16_t)buf[5];
         int16_t raw_z = ((uint16_t)buf[2] << 8) | (uint16_t)buf[3];
-        LOG << "x_raw " << raw_x << ", y_raw " << raw_y << ", z_raw " << raw_z;
-        // if (x & (1 << 15)) x = x - (1 << 16);
-        // if (y & (1 << 15)) y = y - (1 << 16);
-        // if (z & (1 << 15)) z = z - (1 << 16);
         double x = raw_x * _gain_map[_gain].second;
         double y = raw_y * _gain_map[_gain].second;
         double z = raw_z * _gain_map[_gain].second;
