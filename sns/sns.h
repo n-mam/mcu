@@ -198,6 +198,7 @@ inline void test_mahony() {
             << ax << "," << ay << "," << az << ","
                 << gx << "," << gy << "," << gz << ","
                     << mx << "," << my << "," << mz;
+        mcl::sleep_ms(15);
     }
 }
 
