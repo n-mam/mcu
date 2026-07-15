@@ -37,18 +37,18 @@ struct mpu6050 {
         // DLPF ~44Hz (stable output)
         buf = 0x03;
         _i2c->write(MPU6050_I2C_ADDR, 0x1A, &buf, 1);
-        mcl::sleep_ms(50);        
+        mcl::sleep_ms(50);
     }
 
     void calibrate() {
         LOG << "calibrating...";
         LOG << "please keep the sensor still.";
         int actual = 0;
-        const int samples = 1024;
+        const int samples = 2048;
         int32_t a[3] = {0, 0, 0};
         int32_t g[3] = {0, 0, 0};
         for (int i = 0; i < samples; i++) {
-            auto [ts, ax, ay, az, gx, gy, gz] = 
+            auto [ts, ax, ay, az, gx, gy, gz] =
                 read_raw();
             ++actual;
             a[0] += ax;
@@ -95,7 +95,7 @@ struct mpu6050 {
 
     auto read_calibrated() -> MotionData<float> {
         auto [ts, ax, ay, az, gx, gy, gz] = read_raw();
-        // offset correction and 
+        // offset correction and
         // scale to physical units
         return {ts,
             (ax - ax_offset) * ACC_SCALE_INV,
