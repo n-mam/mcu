@@ -149,7 +149,7 @@ inline void test_motor_drv8833() {
     // motor.set_speed(50);
 }
 
-void test_28BYJ_48_stepper() {
+inline void test_28BYJ_48_stepper() {
     #if defined PICO
     const int in[4] = {2, 3, 4, 5};
     std::array<std::array<uint32_t, 4>, 8>
@@ -185,7 +185,7 @@ void test_28BYJ_48_stepper() {
 }
 
 #if defined (STM32)
-void test_bldc_sinusoidal_wave() {
+inline void test_bldc_sinusoidal_wave() {
     // on nucleo-64 boards PA2 PA3
     // are used by stlink USART
     // use PB timer AF instead
@@ -231,7 +231,7 @@ step comm_table[6] = {
     {0, 0, 0, 1, 1, 0},  // step 6: C+ B-
 };
 
-void apply_step_pwm(step s, double duty, Timer& timer, bool co = false) {
+inline void apply_step_pwm(step s, double duty, Timer& timer, bool co = false) {
     if (!co) {
         GPIOA->BSRR =
             (s.LA ? GPIO_BSRR_BS1 : GPIO_BSRR_BR1) |
@@ -243,7 +243,7 @@ void apply_step_pwm(step s, double duty, Timer& timer, bool co = false) {
     timer.set_duty_cycle(3, s.HC ? duty : 0);
 }
 
-void apply_step_ll(step s) {
+inline void apply_step_ll(step s) {
     GPIOA->BSRR =
         (s.HA ? GPIO_BSRR_BS0 : GPIO_BSRR_BR0) |
         (s.LA ? GPIO_BSRR_BS1 : GPIO_BSRR_BR1) |
@@ -254,7 +254,7 @@ void apply_step_ll(step s) {
 }
 
 // LL on both HS and LS, manual dead time insertion
-void test_bldc_trapezoidal_ll() {
+inline void test_bldc_trapezoidal_ll() {
     // Enable clock for the GPIOA
     mcl::enableClockForGpio(GPIOA);
     // Clear mode bits for PA0 to PA5 first
@@ -281,8 +281,7 @@ void test_bldc_trapezoidal_ll() {
 }
 
 // Complementary PWM on LS and HS with harware dead time insertion
-void test_bldc_trapezoidal_pwm_comp() {
-    #if defined (STM32)
+inline void test_bldc_trapezoidal_pwm_comp() {
     Timer tm(TIM1);
     // 20KHz BLDC frequency
     tm.set_frequency(20*1000);
@@ -317,12 +316,10 @@ void test_bldc_trapezoidal_pwm_comp() {
         step = (step + 1) % 6;
     }
     apply_step_pwm({0,0,0,0,0,0}, 0, tm, true);
-    #endif
 }
 
 // PWM on the HS, LL on the LS, manual dead time insertion
-void test_bldc_trapezoidal_pwm() {
-    #if defined (STM32)
+inline void test_bldc_trapezoidal_pwm() {
     // Enable clock for LS pins
     mcl::enableClockForGpio(GPIOA);
     // Clear mode bits for PA1, PA3, PA5 as GPIO outputs (LU, LV, LW)
@@ -348,7 +345,6 @@ void test_bldc_trapezoidal_pwm() {
     tm.start_channel(3, false);
     // Enable the timer
     tm.enable();
-    #endif
     int step = 0;
     double duty = 0.90;
     while (!getInstance<config>()->shouldExit()) {

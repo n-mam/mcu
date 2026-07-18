@@ -37,7 +37,7 @@ struct Timer {
     }
 
     uint32_t timerClock() {
-        if (isAdvance()) {
+        if (is_advance()) {
             return mcl::apb2TimerClock();
         } else {
             return mcl::apb1TimerClock();
@@ -106,7 +106,7 @@ struct Timer {
         // it gets divided by the timer's PSC factor, post which it becomes
         // CLK_CNT (input to the counter); Time period of DTS in nanoseconds
         // ~ 10.41ns - with a 96MHz scaled APB1 timer input clock
-        if (!isAdvance()) return;
+        if (!is_advance()) return;
         double T_dts_ns = (1.0 / timerClock()) * 1e9;
         uint32_t dt_ticks = dt_ns / T_dts_ns;
         _timer->BDTR = (_timer->BDTR & ~TIM_BDTR_DTG) | (dt_ticks & 0x7F);
@@ -117,13 +117,13 @@ struct Timer {
     void start_channel(int ch, bool eco) {
         if (ch == 1) {
             // CC1 output enable and enable complementary output
-            _timer->CCER |= TIM_CCER_CC1E | ((eco && isAdvance()) ? TIM_CCER_CC1NE : 0);
+            _timer->CCER |= TIM_CCER_CC1E | ((eco && is_advance()) ? TIM_CCER_CC1NE : 0);
         } else if (ch == 2) {
             // CC2 output enable and enable complementary output
-            _timer->CCER |= TIM_CCER_CC2E | ((eco && isAdvance()) ? TIM_CCER_CC2NE : 0);
+            _timer->CCER |= TIM_CCER_CC2E | ((eco && is_advance()) ? TIM_CCER_CC2NE : 0);
         } else if (ch == 3) {
             // CC3 output enable and enable complementary output
-            _timer->CCER |= TIM_CCER_CC3E | ((eco && isAdvance()) ? TIM_CCER_CC3NE : 0);
+            _timer->CCER |= TIM_CCER_CC3E | ((eco && is_advance()) ? TIM_CCER_CC3NE : 0);
         } else if (ch == 4) {
             // CC4 output enable no and complementary output on channel 4
             _timer->CCER |= TIM_CCER_CC4E;
@@ -184,7 +184,7 @@ struct Timer {
         }
     }
 
-    bool isAdvance() {
+    bool is_advance() {
         return _timer == TIM1;
     }
 
@@ -193,7 +193,7 @@ struct Timer {
         _timer->EGR |= TIM_EGR_UG;
         // Reset counter
         _timer->CNT = 0;
-        if (isAdvance()) {
+        if (is_advance()) {
             // Disable break input
             _timer->BDTR &= ~TIM_BDTR_BKE;
             // Main output enable
@@ -205,7 +205,7 @@ struct Timer {
 
     void disable() {
         // disable MOE for advanced timers
-        if (isAdvance()) {
+        if (is_advance()) {
             _timer->BDTR &= ~TIM_BDTR_MOE;
         }
         // Disable the timer

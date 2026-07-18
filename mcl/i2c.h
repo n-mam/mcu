@@ -30,15 +30,15 @@ struct i2c {
         i2c_inst_t *i2cx) {
         #endif
             I2Cx = i2cx;
+            #if defined (STM32)
             GPIOx = gpiox;
-            #if defined (PICO)
+            mcl::i2c_init(scl, sda, freq, I2Cx, GPIOx);
+            #elif defined (PICO)
             i2c_init(I2Cx, freq);
             gpio_set_function(sda, GPIO_FUNC_I2C);
             gpio_set_function(scl, GPIO_FUNC_I2C);
             gpio_pull_up(sda);
             gpio_pull_up(scl);
-            #elif defined (STM32)
-            mcl::i2c_init(scl, sda, freq, I2Cx, GPIOx);
             #endif
     }
 
