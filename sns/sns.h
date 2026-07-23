@@ -104,7 +104,7 @@ inline void test_hmc58883l() {
     #elif defined (STM32)
     serial::i2c bus(7, 6, 400'000, I2C1, GPIOB);
     #endif
-    auto compass = sensor::create<imu::HMC5883L>(bus);
+    auto compass = sensor::create<imu::hmc5883l>(bus);
     compass->setDeclination(4);
     compass->calibrate(2000);
     while (true) {
@@ -179,13 +179,13 @@ inline void test_mahony() {
     auto mpu = sensor::create<imu::mpu6050>(bus1);
     mpu->initialize();
     mpu->calibrate();
-    // HMC5883L
+    // hmc5883l
     #if defined (PICO)
     serial::i2c bus2(16, 17, 400'000, i2c0);
     #elif defined (STM32)
-    serial::i2c bus2(3, 10, 400'000, I2C2, GPIOB);
+    serial::i2c bus2(3, 10, 400'000, I2C2, GPIOB); //F466
     #endif
-    auto mag = sensor::create<imu::HMC5883L>(bus2);
+    auto mag = sensor::create<imu::hmc5883l>(bus2);
     mag->setDeclination(4);
     mag->calibrate(2000);
     while (true) {

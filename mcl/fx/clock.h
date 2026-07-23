@@ -92,7 +92,7 @@ inline uint32_t apb2TimerClock() {
     #if defined (STM32F411xE)
     return 96000000;
     #elif defined (STM32F446xx)
-    return 0;
+    return 180000000;
     #elif defined (STM32F767)
     return 0;
     #elif defined (STM32H755)

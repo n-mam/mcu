@@ -98,8 +98,8 @@ inline auto initialize_rudder(int pin, int freq) {
     return rudder;
 }
 
-#include <motor/test.h>
+} //namespace mcl
 
-}
+#include <motor/test.h>
 
 #endif

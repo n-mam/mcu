@@ -4,7 +4,7 @@
 #if defined (PICO)
 
 #elif defined (STM32)
-#include <fx/uart.h>
+#include <uart.h>
 #endif
 
 namespace mcl {

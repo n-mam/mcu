@@ -4,7 +4,7 @@
 #include <mcl/mcl.h>
 
 #if defined (STM32)
-#include <fx/timer.h>
+#include <timer.h>
 #elif defined (PICO)
 #include <hardware/pwm.h>
 #endif

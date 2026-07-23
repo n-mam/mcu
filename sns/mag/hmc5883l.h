@@ -19,7 +19,7 @@ constexpr uint8_t HMC5883L_CONFIG_REG_B = 0x01;
 constexpr uint8_t DATA_OUTPUT_X_MSB_REG = 0x03;
 constexpr uint8_t HMC5883L_CONFIG_REG_MODE = 0x02;
 
-struct HMC5883L {
+struct hmc5883l {
 
     double x_bias = -19.725;
     double y_bias = -6.375;
@@ -44,7 +44,7 @@ struct HMC5883L {
             {8.1,  {7 << 5, 4.35}}
         };
 
-    HMC5883L(serial::i2c& bus, double gain = 1.9) : _gain(gain), _i2c(&bus) {
+    hmc5883l(serial::i2c& bus, double gain = 1.9) : _gain(gain), _i2c(&bus) {
         uint8_t buf1[2] = {HMC5883L_CONFIG_REG_A, 0b01110000};
         _i2c->write(HMC5883L_ADDR, buf1[0], buf1 + 1, 1);
         uint8_t buf2[2] = {HMC5883L_CONFIG_REG_B, _gain_map[_gain].first};  // 1.9 gauss gain
