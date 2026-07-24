@@ -204,12 +204,12 @@ inline void test_mahony() {
 
 inline void adc_test() {
     #if defined(STM32F4) || defined(STM32F7)
-    ADC_Config_t adc = {
+    ADC_Config_t cfg = {
         ADC1,              // Instance
         ADC_CH0,           // Channel
         ADC_ALIGN_RIGHT,   // Alignment
         ADC_RES_12BIT,     // Resolution
-        ADC_SAMPLE_480     // SampleTime
+        ADC_SAMPLE_84      // SampleTime
     };
     // Enable clock for GPIOA
     mcl::enableClockForGpio(GPIOA);
@@ -219,11 +219,12 @@ inline void adc_test() {
     // No pull-up/pull-down
     GPIOA->PUPDR &= ~(3UL << (0 * 2));
     // Initialize adc
-    adc_init(&adc);
+    adc_init(&cfg);
+    // Throw away first conversion
+    adc_read(&cfg);
     while (1) {
-        uint16_t value = adc_read(&adc);
-        LOG << " " << value;
-        mcl::sleep_ms(10);
+        uint16_t raw = adc_read(&cfg);
+        LOG << "v: " << ((float)raw * 3.3f) / 4095.0f;
     }
     #endif
 }

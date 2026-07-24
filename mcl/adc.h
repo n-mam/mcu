@@ -57,6 +57,11 @@ typedef struct {
 } ADC_Config_t;
 
 static inline void adc_init(const ADC_Config_t *cfg) {
+    // clear ADCPRE
+    ADC->CCR &= ~(3UL << 16);
+    // divide by 4 which implies:
+    // 90MHz / 4 = 22.5MHz ADC clock
+    ADC->CCR |=  (1UL << 16);
     // Enable clock for ADC peripheral
     mcl::enableClockForAdc(cfg->_instance);
     // ADC off
@@ -83,8 +88,10 @@ static inline void adc_init(const ADC_Config_t *cfg) {
         cfg->_instance->SMPR1 &= ~(7UL << shift);
         cfg->_instance->SMPR1 |= ((uint32_t)cfg->_sampleTime << shift);
     }
-    // enable ADC
+    // Enable ADC
     cfg->_instance->CR2 |= ADC_CR2_ADON;
+    // Wait briefly
+    mcl::delay_us(10);
 }
 
 static inline void adc_start(const ADC_Config_t *cfg) {
@@ -100,6 +107,8 @@ static inline uint16_t adc_read_data(const ADC_Config_t *cfg) {
 }
 
 static inline uint16_t adc_read(const ADC_Config_t *cfg) {
+    // clear old conversion flag
+    cfg->_instance->SR &= ~ADC_SR_EOC;
     adc_start(cfg);
     while(!adc_is_complete(cfg));
     return adc_read_data(cfg);
