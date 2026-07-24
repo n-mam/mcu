@@ -24,6 +24,7 @@ static constexpr
             {19,  test_bldc_sinusoidal_wave },
             {20,  test_mpu6050},
             {21,  test_mahony},
+            {22,  adc_test},
             #if defined(PICO)
             {99, []() {
                 watchdog_enable(3000, true);

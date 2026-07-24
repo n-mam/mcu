@@ -8,53 +8,39 @@
 
 namespace mcl {
 
-struct motor {
+struct drv8833 {
 
+    int _duty = 10;
     mcl::pwm _pwm_a;
     mcl::pwm _pwm_b;
     bool _forward = true;
 
-    motor(int pin1, int pin2, int frequency = 20000) :
+    drv8833(int pin1, int pin2, int frequency = 20000) :
         _pwm_a(pin1, frequency),
         _pwm_b(pin2, frequency) {
 
     }
-
-    ~motor() {
+    ~drv8833() {
         stop();
     }
-
-    void start() {
-        printf("start: forward %d\n", _forward);
-        stop();
-        if (_forward) {
-            _pwm_a.start(85);
-            _pwm_b.start(0);
-        } else {
-            _pwm_a.start(0);
-            _pwm_b.start(85);
-        }
-    }
-
     void stop() {
-        printf("stop: forward %d\n", _forward);
         _pwm_a.stop();
         _pwm_b.stop();
     }
-
-    void reverse() {
-        _forward = false;
+    void start() {
+        _pwm_a.start(_forward ? _duty : 0);
+        _pwm_b.start(_forward ? 0 : _duty);
+    }
+    void set_direction(bool forward) {
+        if (_forward == forward) return;
+        _forward = forward;
         stop();
         start();
     }
-
     void set_speed(int duty) {
-        printf("set_speed: duty %d, forward %d\n", duty, _forward);
-        if (_forward) {
-            _pwm_a.set_duty_cycle(duty);
-        } else {
-            _pwm_b.set_duty_cycle(duty);
-        }
+        _duty = duty;
+        _pwm_a.set_duty_cycle(_forward ? _duty : 0);
+        _pwm_b.set_duty_cycle(_forward ? 0 : _duty);
     }
 };
 

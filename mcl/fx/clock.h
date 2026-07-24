@@ -106,7 +106,7 @@ inline uint32_t apb2PeripheralClock() {
     #if defined (STM32F411xE)
     return 96000000;
     #elif defined (STM32F446xx)
-    return 0;
+    return 90000000;
     #elif defined (STM32F7)
     return 0;
     #elif defined (STM32H7)
@@ -319,6 +319,31 @@ inline void enableClockForUart(USART_TypeDef *instance) {
     }
     #endif
 }
+
+inline void enableClockForAdc(ADC_TypeDef *adc) {
+    #if defined(STM32F411xE)
+    if (adc == ADC1) {
+        RCC->APB2ENR |= RCC_APB2ENR_ADC1EN;
+    }
+    #elif defined(STM32F446xx)
+    if (adc == ADC1) {
+        RCC->APB2ENR |= RCC_APB2ENR_ADC1EN;
+    } else if (adc == ADC2) {
+        RCC->APB2ENR |= RCC_APB2ENR_ADC2EN;
+    } else if (adc == ADC3) {
+        RCC->APB2ENR |= RCC_APB2ENR_ADC3EN;
+    }
+    #elif defined(STM32F7)
+    if (adc == ADC1) {
+        RCC->APB2ENR |= RCC_APB2ENR_ADC1EN;
+    } else if (adc == ADC2) {
+        RCC->APB2ENR |= RCC_APB2ENR_ADC2EN;
+    } else if (adc == ADC3) {
+        RCC->APB2ENR |= RCC_APB2ENR_ADC3EN;
+    }
+    #endif
+}
+
 #endif
 
 }

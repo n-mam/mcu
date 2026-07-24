@@ -45,6 +45,9 @@ extern "C" void cdc_write_data(const char *, size_t);
 #include <mcl/log.h>
 #include <mcl/fx/clock.h>
 #include <mcl/serial.h>
+#if defined(STM32F4) || defined(STM32F7)
+#include <mcl/adc.h>
+#endif
 
 // pins
 constexpr uint8_t IR_PIN = 2;
@@ -140,8 +143,8 @@ inline void initialize_logging(mcl::log::level l) {
                 #if defined(STM32F446xx)
                 p_serial->transmit((const uint8_t *)log.c_str(), log.size());
                 #elif defined(STM32H7)
-                // only for F446RE which has usb 
-                // to usart bridge over stlink. 
+                // only for F446RE which has usb
+                // to usart bridge over stlink.
                 stlink_uart(log.c_str());
                 #endif
             } else if (sink == mcl::log::sink::con) {

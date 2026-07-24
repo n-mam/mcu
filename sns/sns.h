@@ -202,4 +202,21 @@ inline void test_mahony() {
     }
 }
 
+inline void adc_test() {
+    #if defined(STM32F4) || defined(STM32F7)
+    ADC_Config_t adc = {
+        ADC1,              // Instance
+        ADC_CH0,           // Channel
+        ADC_ALIGN_RIGHT,   // Alignment
+        ADC_RES_12BIT,     // Resolution
+        ADC_SAMPLE_84      // SampleTime
+    };
+    // Configure PA0 as Analog before calling ADC_Init()
+    adc_init(&adc);
+    while (1) {
+        uint16_t value = adc_read(&adc);
+    }
+    #endif
+}
+
 #endif

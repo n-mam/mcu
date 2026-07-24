@@ -43,23 +43,23 @@ inline void test_servo_m200() {
 
 inline void test_servo_drv8833_motor() {
     mcl::pwm _pwm_servo(0, PWM_FREQ_SERVO);
-    mcl::motor m(14, 15, PWM_FREQ_MOTOR_DRV8833);
+    mcl::drv8833 motor(14, 15, PWM_FREQ_MOTOR_DRV8833);
     printf("starting servo and motor...\n");
-    m.start();
+    motor.start();
     _pwm_servo.start();
     mcl::sleep_ms(5000);
     while (true) {
         // MG990 0-180 degrees
-        m.set_speed(95);
+        motor.set_speed(95);
         _pwm_servo.set_duty_cycle(2.0 / 20.0);
         mcl::sleep_ms(1000);
-        m.set_speed(90);
+        motor.set_speed(90);
         _pwm_servo.set_duty_cycle(1.5 / 20.0);
         mcl::sleep_ms(1000);
-        m.set_speed(85);
+        motor.set_speed(85);
         _pwm_servo.set_duty_cycle(1.0 / 20.0);
         mcl::sleep_ms(1000);
-        m.set_speed(80);
+        motor.set_speed(80);
         _pwm_servo.set_duty_cycle(0.5 / 20.0);
         mcl::sleep_ms(1000);
         _pwm_servo.set_duty_cycle(2.5 / 20.0);
@@ -115,7 +115,7 @@ inline void test_sg90_servo() {
 }
 
 inline void test_motor_drv8833() {
-    mcl::motor motor(14, 15, 20000);
+    mcl::drv8833 motor(14, 15, 20000);
     motor.start();
     // brushed motor might have a differnt
     // starting duty cycle in reverse direction
@@ -144,7 +144,7 @@ inline void test_motor_drv8833() {
     // mcl::sleep_ms(1500);
     // motor.set_speed(45);
     // mcl::sleep_ms(3000);
-    // motor.reverse();
+    // motor.set_direction(false);
     // mcl::sleep_ms(1500);
     // motor.set_speed(50);
 }
