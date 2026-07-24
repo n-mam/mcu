@@ -209,12 +209,21 @@ inline void adc_test() {
         ADC_CH0,           // Channel
         ADC_ALIGN_RIGHT,   // Alignment
         ADC_RES_12BIT,     // Resolution
-        ADC_SAMPLE_84      // SampleTime
+        ADC_SAMPLE_480     // SampleTime
     };
-    // Configure PA0 as Analog before calling ADC_Init()
+    // Enable clock for GPIOA
+    mcl::enableClockForGpio(GPIOA);
+    // PA0 -> Analog mode
+    GPIOA->MODER &= ~(3UL << (0 * 2));
+    GPIOA->MODER |=  (3UL << (0 * 2));
+    // No pull-up/pull-down
+    GPIOA->PUPDR &= ~(3UL << (0 * 2));
+    // Initialize adc
     adc_init(&adc);
     while (1) {
         uint16_t value = adc_read(&adc);
+        LOG << " " << value;
+        mcl::sleep_ms(10);
     }
     #endif
 }
