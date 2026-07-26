@@ -344,6 +344,14 @@ inline void enableClockForAdc(ADC_TypeDef *adc) {
     #endif
 }
 
+inline void enableClockForDma(DMA_TypeDef *dma) {
+    if (dma == DMA1) {
+        RCC->AHB1ENR |= RCC_AHB1ENR_DMA1EN;
+    } else if (dma == DMA2) {
+        RCC->AHB1ENR |= RCC_AHB1ENR_DMA2EN;
+    }
+}
+
 #endif
 
 }

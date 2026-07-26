@@ -47,6 +47,7 @@ extern "C" void cdc_write_data(const char *, size_t);
 #include <mcl/serial.h>
 #if defined(STM32F4) || defined(STM32F7)
 #include <mcl/adc.h>
+#include <mcl/dma.h>
 #endif
 
 // pins

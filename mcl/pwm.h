@@ -26,14 +26,10 @@ struct pwm {
     uint64_t f_clock = 125000000;
     double f_minimum = 1907.34863281;
     #elif defined (STM32)
-    Timer _timer;
+    Timer_Config_t _timer{};
     #endif
 
-    pwm(int pin, int frequency)
-        #if defined (STM32)
-        : _timer(TIM2)
-        #endif
-    {
+    pwm(int pin, int frequency) {
         #if defined (PICO)
         gpio_set_function(pin, GPIO_FUNC_PWM);
         _slice = pwm_gpio_to_slice_num(pin);
@@ -47,9 +43,13 @@ struct pwm {
         pwm_set_wrap(_slice, _wrap);
         //printf("pwm::pwm -> frequency %d, wrap %d\n", _frequency, _wrap);
         #else
-        _timer.init_channel(1, GPIOA, pin, nullptr, -1);
-        _timer.set_frequency(frequency);
-        _timer.set_duty_cycle(1, 0.0f);
+        _timer.instance = TIM2;
+        timer_init(&_timer);
+        timer_init_channel(&_timer, 1, GPIOA, pin, nullptr, 0);
+        static const uint8_t pins[] = { pin };
+        timer_init_gpio(GPIOA, pins, 1, 1); // AF1 for TIM2
+        timer_set_frequency(&_timer, frequency);
+        timer_set_duty_cycle(&_timer, 1, 0.0f);
         #endif
     }
 
@@ -63,8 +63,9 @@ struct pwm {
         set_duty_cycle(duty);
         pwm_set_enabled(_slice, true);
         #else
-        _timer.start_channel(1, false);
-        _timer.enable();
+        timer_set_duty_cycle(&_timer, 1, duty);
+        timer_start_channel(&_timer, 1, false);
+        timer_start(&_timer);
         #endif
     }
 
@@ -75,8 +76,9 @@ struct pwm {
         #if defined (PICO)
         pwm_set_enabled(_slice, false);
         #else
-        _timer.stop_channel(1);
-        _timer.disable();
+        timer_set_duty_cycle(&_timer, 1, 0.0f);
+        timer_stop_channel(&_timer, 1);
+        timer_stop(&_timer);
         #endif
     }
 
@@ -86,7 +88,7 @@ struct pwm {
         //printf("set_duty_cycle: duty %f, level %f\n", duty, level);
         pwm_set_chan_level(_slice, _channel, level);
         #elif defined (STM32)
-        _timer.set_duty_cycle(1, duty);
+        timer_set_duty_cycle(&_timer, 1, duty);
         #endif
     }
 
@@ -112,6 +114,8 @@ struct pwm {
     }
     #endif
 };
+
+} //namespace mcl
 
 inline void test_led() {
     mcl::pwm _pwm(5, PWM_FREQ_LED);
@@ -151,7 +155,7 @@ inline void toggle_default_led() {
     // Set GPIOA's pin 5 to "very high" speed output
 	GPIOA->OSPEEDR |= GPIO_OSPEEDR_OSPEED5;
     while (true) {
-        std::cout <<"toggle PA5" << std::endl;
+        LOG << "toggle PA5";
         GPIOA->ODR ^= (1 << 5);
         // systick 1ms timer test
         mcl::sleep_ms(500);
@@ -200,8 +204,6 @@ inline void toggle_default_led() {
             mcl::sleep_ms(500);
         }
     #endif
-}
-
 }
 
 #endif

@@ -202,29 +202,120 @@ inline void test_mahony() {
     }
 }
 
-inline void adc_test() {
+// TIM2 update event →
+//   ADC1 external trigger →
+//      ADC conversion →
+//         DMA2 Stream0 →
+//            circular buffer
+extern "C" {
+    volatile uint32_t dma_half_count = 0;
+    volatile uint32_t dma_full_count = 0;
+    volatile uint32_t dma_err_count = 0;
+    volatile uint32_t adc_ovr_count = 0;
+    alignas(4) uint16_t adc_buffer[1024];
+    alignas(4) uint16_t print_buffer[512];
+    volatile bool half_ready = false;
+    volatile bool full_ready = false;
+    inline void adc_callback(int n) {
+        if (n == 0) {
+            adc_ovr_count++;
+        }
+    }
+    inline void dma_callback(int n) {
+        if (n == 1) {
+            dma_half_count++;
+            half_ready = true;
+        } else if (n == 2) {
+            dma_full_count++;
+            full_ready = true;
+        } else if (n == 3) {
+            dma_err_count++;
+        }
+    }
+}
+
+inline void adc_tim_dma_test() {
     #if defined(STM32F4) || defined(STM32F7)
-    ADC_Config_t cfg = {
-        ADC1,              // Instance
-        ADC_CH0,           // Channel
-        ADC_ALIGN_RIGHT,   // Alignment
-        ADC_RES_12BIT,     // Resolution
-        ADC_SAMPLE_84      // SampleTime
-    };
-    // Enable clock for GPIOA
+    // Enable clock for GPIOA (sampling pin)
     mcl::enableClockForGpio(GPIOA);
     // PA0 -> Analog mode
     GPIOA->MODER &= ~(3UL << (0 * 2));
     GPIOA->MODER |=  (3UL << (0 * 2));
     // No pull-up/pull-down
     GPIOA->PUPDR &= ~(3UL << (0 * 2));
-    // Initialize adc
-    adc_init(&cfg);
-    // Throw away first conversion
-    adc_read(&cfg);
-    while (1) {
-        uint16_t raw = adc_read(&cfg);
-        LOG << "v: " << ((float)raw * 3.3f) / 4095.0f;
+    // ADC configuration
+    ADC_Config_t adc = {
+        ADC1,                 // instance
+        ADC_CH0,              // channel
+        ADC_ALIGN_RIGHT,      // alignment
+        ADC_RES_12BIT,        // resolution
+        ADC_SAMPLE_84,        // sampleTime
+        ADC_TRIGGER_TIM2_TRGO, // EXTSEL (TIM2)
+        adc_callback           // interrupt handler
+    };
+    // Enable clock for ADC peripheral
+    // to access ADC common registers
+    mcl::enableClockForAdc(ADC1);
+    adc_global_init();
+    adc_init(&adc);
+    // DMA configurtion
+    DMA_Config_t dma = {
+        0,                          // channel
+        DMA_SxCR_MSIZE_0,           // memorySize (16-bit)
+        true,                       // circularMode
+        DMA2,                       // instance
+        1024,                       // transferCount
+        true,                       // memoryIncrement
+        DMA_SxCR_PSIZE_0,           // peripheralSize (16-bit)
+        DMA_DIR_PER_TO_MEM,         // direction
+        DMA2_Stream0,               // stream
+        false,                      // peripheralIncrement
+        adc_buffer,                 // memoryAddress
+        &ADC1->DR,                  // peripheralAddress
+        dma_callback                // interrupt handler
+    };
+    dma_init(&dma);
+    dma_enable_irq(&dma);
+    // Timer config
+    Timer_Config_t tim{};
+    tim.instance = TIM2;
+    timer_init(&tim);
+    timer_set_frequency(&tim, 1000);
+    timer_enable_trgo(&tim);
+    // start DMA
+    dma_start(&dma);
+    // enable ADC
+    adc_enable(&adc);
+    // start timer trigger source last
+    timer_start(&tim);
+    while(true) {
+        // LOG << " half=" << dma_half_count
+        //     << " full=" << dma_full_count
+        //     << " d_err=" << dma_err_count
+        //     << " a_err=" << adc_ovr_count
+        //     << " ADC_SR=" << (uint32_t)ADC1->SR
+        //     << " TIM_CNT=" << (uint32_t)TIM2->CNT
+        //     << " ADC_CR2=" << (uint32_t)ADC1->CR2
+        //     << " DMA_LISR=" << (uint32_t)DMA2->LISR
+        //     << " DMA_CR=" << (uint32_t)DMA2_Stream0->CR
+        //     << " DMA_FCR=" << (uint32_t)DMA2_Stream0->FCR
+        //     << " DMA_NDTR=" << (uint32_t)DMA2_Stream0->NDTR;
+        if (half_ready) {
+            half_ready = false;
+            // copy first half
+            memcpy(print_buffer, &adc_buffer[0], sizeof(print_buffer));
+            for (size_t i = 0; i < 512; ++i) {
+                LOG << " " << print_buffer[i];
+            }
+        }
+        if (full_ready) {
+            full_ready = false;
+            // copy second half
+            memcpy(print_buffer, &adc_buffer[512], sizeof(print_buffer));
+            for (size_t i = 0; i < 512; ++i) {
+                LOG << " " << print_buffer[i];
+            }
+        }
     }
     #endif
 }

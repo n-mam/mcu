@@ -189,25 +189,26 @@ inline void test_bldc_sinusoidal_wave() {
     // on nucleo-64 boards PA2 PA3
     // are used by stlink USART
     // use PB timer AF instead
-    #if defined (STM32)
-    Timer t2(TIM2);
-    t2.set_frequency(50);
-    t2.init_gpio(GPIOB, {3, 10, 11}, 0x01);
-    // TIM2 CH1 PB0
-    t2.init_channel(1, GPIOB, 8, nullptr, -1);
-    t2.set_duty_cycle(1, 0);
-    t2.start_channel(1, false);
-    // TIM2 CH2 PB1
-    t2.init_channel(2, GPIOB, 9, nullptr, -1);
-    t2.set_duty_cycle(2, 0);
-    t2.start_channel(2, false);
-    // TIM2 CH3 PB3
-    t2.init_channel(3, GPIOB, 10, nullptr, -1);
-    t2.set_duty_cycle(3, 0);
-    t2.start_channel(3, false);
-    // Enable the timer
-    t2.enable();
-    #endif
+    Timer_Config_t t2{};
+    t2.instance = TIM2;
+    timer_init(&t2);
+    timer_set_frequency(&t2, 50);
+    static const uint8_t pins[] = {8, 9, 10};
+    timer_init_gpio(GPIOB, pins, 3, 1); // AF1
+    // TIM2 CH1 -> PB8
+    timer_init_channel(&t2, 1, GPIOB, 8, nullptr, 0);
+    timer_set_duty_cycle(&t2, 1, 0.0f);
+    timer_start_channel(&t2, 1, false);
+    // TIM2 CH2 -> PB9
+    timer_init_channel(&t2, 2, GPIOB, 9, nullptr, 0);
+    timer_set_duty_cycle(&t2, 2, 0.0f);
+    timer_start_channel(&t2, 2, false);
+    // TIM2 CH3 -> PB10
+    timer_init_channel(&t2, 3, GPIOB, 10, nullptr, 0);
+    timer_set_duty_cycle(&t2, 3, 0.0f);
+    timer_start_channel(&t2, 3, false);
+    // Start the timer
+    timer_start(&t2);
     while (true){mcl::sleep_ms(100);}
 }
 
@@ -231,16 +232,16 @@ step comm_table[6] = {
     {0, 0, 0, 1, 1, 0},  // step 6: C+ B-
 };
 
-inline void apply_step_pwm(step s, double duty, Timer& timer, bool co = false) {
-    if (!co) {
+inline void apply_step_pwm(step s, float duty, Timer_Config_t &timer, bool complementary = false) {
+    if (!complementary) {
         GPIOA->BSRR =
             (s.LA ? GPIO_BSRR_BS1 : GPIO_BSRR_BR1) |
             (s.LB ? GPIO_BSRR_BS3 : GPIO_BSRR_BR3) |
             (s.LC ? GPIO_BSRR_BS5 : GPIO_BSRR_BR5);
     }
-    timer.set_duty_cycle(1, s.HA ? duty : 0);
-    timer.set_duty_cycle(2, s.HB ? duty : 0);
-    timer.set_duty_cycle(3, s.HC ? duty : 0);
+    timer_set_duty_cycle(&timer, 1, s.HA ? duty : 0.0f);
+    timer_set_duty_cycle(&timer, 2, s.HB ? duty : 0.0f);
+    timer_set_duty_cycle(&timer, 3, s.HC ? duty : 0.0f);
 }
 
 inline void apply_step_ll(step s) {
@@ -282,40 +283,48 @@ inline void test_bldc_trapezoidal_ll() {
 
 // Complementary PWM on LS and HS with harware dead time insertion
 inline void test_bldc_trapezoidal_pwm_comp() {
-    Timer tm(TIM1);
+    Timer_Config_t tm{};
+    tm.instance = TIM1;
+    timer_init(&tm);
     // 20KHz BLDC frequency
-    tm.set_frequency(20*1000);
+    timer_set_frequency(&tm, 20'000);
     // 8, 9, 10 --> CH1, CH2, CH3
-    tm.init_gpio(GPIOA, {8, 9, 10}, 0x01);
+    static const uint8_t hs_pins[] = {8, 9, 10};
+    static const uint8_t ls_pins[] = {13, 14, 15};
+    // 8, 9, 10 --> CH1, CH2, CH3
+    timer_init_gpio(GPIOA, hs_pins, 3, 1); // AF1
     // 13, 14, 15 --> CH1N, CH2N, CH3N
-    tm.init_gpio(GPIOB, {13, 14, 15}, 0x01);
+    timer_init_gpio(GPIOB, ls_pins, 3, 1); // AF1
     // Set dead time of 250ns
     // TMC6300 has BBM (Break before Make)
     // internal hardware dead time so we really
     // dont need external dead time setup via mcu
-    tm.set_dead_time(250);
+    timer_set_dead_time(&tm, 250);
     // initialize all channels
-    tm.init_channel(1, GPIOA, 8, GPIOB, 13);
-    tm.set_duty_cycle(1, 0);
-    tm.start_channel(1, true);
-    tm.init_channel(2, GPIOA, 9, GPIOB, 14);
-    tm.set_duty_cycle(2, 0);
-    tm.start_channel(2, true);
-    tm.init_channel(3, GPIOA, 10, GPIOB, 15);
-    tm.set_duty_cycle(3, 0);
-    tm.start_channel(3, true);
-    // Enable the timer
-    tm.enable();
+    timer_init_channel(&tm, 1, GPIOA, 8, GPIOB, 13);
+    timer_set_duty_cycle(&tm, 1, 0.0f);
+    timer_start_channel(&tm, 1, true);
+
+    timer_init_channel(&tm, 2, GPIOA, 9, GPIOB, 14);
+    timer_set_duty_cycle(&tm, 2, 0.0f);
+    timer_start_channel(&tm, 2, true);
+
+    timer_init_channel(&tm, 3, GPIOA, 10, GPIOB, 15);
+    timer_set_duty_cycle(&tm, 3, 0.0f);
+    timer_start_channel(&tm, 3, true);
+    // Start the timer
+    timer_start(&tm);
     int step = 0;
     while (!getInstance<config>()->shouldExit()) {
         // Next commutation step
-        auto duty = 0.60; //getInstance<config>()->getKeyValue(config::key::motor);
+        constexpr float duty = 0.60f;  //getInstance<config>()->getKeyValue(config::key::motor);
         apply_step_pwm(comm_table[step], duty, tm, true);
         // Hold for the motor to react
         mcl::sleep_ms(15);
         step = (step + 1) % 6;
     }
-    apply_step_pwm({0,0,0,0,0,0}, 0, tm, true);
+    apply_step_pwm({0,0,0,0,0,0}, 0.0f, tm, true);
+    timer_stop(&tm);
 }
 
 // PWM on the HS, LL on the LS, manual dead time insertion
@@ -327,29 +336,33 @@ inline void test_bldc_trapezoidal_pwm() {
     // Set PA1, PA3, PA5 as GP outputs (LU, LV, LW)
     GPIOA->MODER |=  ((1 << (1 * 2)) | (1 << (3 * 2)) | (1 << (5 * 2)));
     // Configure TIM4 CH1-CH3 on PB6, PB7, PB8 as High-Side PWM outputs (HU, HV, HW)
-    Timer tm(TIM4);
+    Timer_Config_t tm{};
+    tm.instance = TIM4;
+    timer_init(&tm);
     // 20KHz BLDC frequency
-    tm.set_frequency(20*1000);
-    tm.init_gpio(GPIOB, {6, 7, 8}, 0x02);
+    timer_set_frequency(&tm, 20'000);
+
+    static const uint8_t pins[] = {6, 7, 8};
+    timer_init_gpio(GPIOB, pins, 3, 2); // AF2
     // TIM4 CH1 PB6
-    tm.init_channel(1, GPIOB, 6, nullptr, -1);
-    tm.set_duty_cycle(1, 0);
-    tm.start_channel(1, false);
+    timer_init_channel(&tm, 1, GPIOB, 6, nullptr, 0);
+    timer_set_duty_cycle(&tm, 1, 0.0f);
+    timer_start_channel(&tm, 1, false);
     // TIM4 CH2 PB7
-    tm.init_channel(2, GPIOB, 7, nullptr, -1);
-    tm.set_duty_cycle(2, 0);
-    tm.start_channel(2, false);
+    timer_init_channel(&tm, 2, GPIOB, 7, nullptr, 0);
+    timer_set_duty_cycle(&tm, 2, 0.0f);
+    timer_start_channel(&tm, 2, false);
     // TIM4 CH3 PB8
-    tm.init_channel(3, GPIOB, 8, nullptr, -1);
-    tm.set_duty_cycle(3, 0);
-    tm.start_channel(3, false);
-    // Enable the timer
-    tm.enable();
+    timer_init_channel(&tm, 3, GPIOB, 8, nullptr, 0);
+    timer_set_duty_cycle(&tm, 3, 0.0f);
+    timer_start_channel(&tm, 3, false);
+    // Start the timer
+    timer_start(&tm);
     int step = 0;
-    double duty = 0.90;
+    float duty = 0.90f;
     while (!getInstance<config>()->shouldExit()) {
         // All off
-        apply_step_pwm({0,0,0,0,0,0}, 0, tm);
+        apply_step_pwm({0,0,0,0,0,0}, 0.0f, tm);
         // Dead time
         mcl::delay_us(2);
         // Next commutation step
@@ -359,7 +372,8 @@ inline void test_bldc_trapezoidal_pwm() {
         mcl::sleep_ms(5);
         step = (step + 1) % 6;
     }
-    apply_step_pwm({0,0,0,0,0,0}, 0, tm);
+    apply_step_pwm({0,0,0,0,0,0}, 0.0f, tm);
+    timer_stop(&tm);
 }
 
 #elif defined (PICO)

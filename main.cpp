@@ -3,17 +3,17 @@
 static constexpr
     std::pair<int, void(*)()>
         dispatch_table[] = {
-            { 1,  mcl::test_led },
+            { 1,  test_led },
             { 2,  test_m200 },
             { 3,  test_blhS },
             { 4,  test_ms5837 },
             { 5,  test_bno055 },
             { 6,  test_bno085 },
-            { 7,  mcl::test_serial },
+            { 7,  test_serial },
             { 8,  test_hmc58883l },
             { 9,  test_sg90_servo },
             {10,  test_motor_drv8833 },
-            {11,  mcl::toggle_default_led },
+            {11,  toggle_default_led },
             {12,  test_network_nanopb },
             {13,  test_cdc_nanopb },
             {14,  test_vl53l0x },
@@ -24,7 +24,7 @@ static constexpr
             {19,  test_bldc_sinusoidal_wave },
             {20,  test_mpu6050},
             {21,  test_mahony},
-            {22,  adc_test},
+            {22,  adc_tim_dma_test},
             #if defined(PICO)
             {99, []() {
                 watchdog_enable(3000, true);

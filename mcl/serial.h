@@ -34,6 +34,8 @@ struct serial {
     #endif
 };
 
+} // namespace mcl
+
 void test_serial() {
     #if defined (STM32F4)
     // Create USART instance with TX on PA2, RX on PA3
@@ -57,8 +59,6 @@ void test_serial() {
         serial.transmit(reinterpret_cast<const uint8_t*>(message), strlen(message));
         mcl::sleep_ms(1000);
     }
-}
-
 }
 
 #endif
