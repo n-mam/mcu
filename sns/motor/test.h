@@ -189,7 +189,7 @@ inline void test_bldc_sinusoidal_wave() {
     // on nucleo-64 boards PA2 PA3
     // are used by stlink USART
     // use PB timer AF instead
-    Timer_Config_t t2{};
+    timer_config_t t2{};
     t2.instance = TIM2;
     timer_init(&t2);
     timer_set_frequency(&t2, 50);
@@ -232,7 +232,7 @@ step comm_table[6] = {
     {0, 0, 0, 1, 1, 0},  // step 6: C+ B-
 };
 
-inline void apply_step_pwm(step s, float duty, Timer_Config_t &timer, bool complementary = false) {
+inline void apply_step_pwm(step s, float duty, timer_config_t &timer, bool complementary = false) {
     if (!complementary) {
         GPIOA->BSRR =
             (s.LA ? GPIO_BSRR_BS1 : GPIO_BSRR_BR1) |
@@ -281,9 +281,58 @@ inline void test_bldc_trapezoidal_ll() {
     }
 }
 
+// PWM on the HS, LL on the LS, manual dead time insertion
+inline void test_bldc_trapezoidal_pwm() {
+    // Enable clock for LS pins
+    mcl::enableClockForGpio(GPIOA);
+    // Clear mode bits for PA1, PA3, PA5 as GPIO outputs (LU, LV, LW)
+    GPIOA->MODER &= ~((3 << (1 * 2)) | (3 << (3 * 2)) | (3 << (5 * 2)));
+    // Set PA1, PA3, PA5 as GP outputs (LU, LV, LW)
+    GPIOA->MODER |=  ((1 << (1 * 2)) | (1 << (3 * 2)) | (1 << (5 * 2)));
+    // Configure TIM4 CH1-CH3 on PB6, PB7, PB8 as High-Side PWM outputs (HU, HV, HW)
+    timer_config_t tm{};
+    tm.instance = TIM4;
+    timer_init(&tm);
+    // 20KHz BLDC frequency
+    timer_set_frequency(&tm, 20'000);
+
+    static const uint8_t pins[] = {6, 7, 8};
+    timer_init_gpio(GPIOB, pins, 3, 2); // AF2
+    // TIM4 CH1 PB6
+    timer_init_channel(&tm, 1, GPIOB, 6, nullptr, 0);
+    timer_set_duty_cycle(&tm, 1, 0.0f);
+    timer_start_channel(&tm, 1, false);
+    // TIM4 CH2 PB7
+    timer_init_channel(&tm, 2, GPIOB, 7, nullptr, 0);
+    timer_set_duty_cycle(&tm, 2, 0.0f);
+    timer_start_channel(&tm, 2, false);
+    // TIM4 CH3 PB8
+    timer_init_channel(&tm, 3, GPIOB, 8, nullptr, 0);
+    timer_set_duty_cycle(&tm, 3, 0.0f);
+    timer_start_channel(&tm, 3, false);
+    // Start the timer
+    timer_start(&tm);
+    int step = 0;
+    float duty = 0.90f;
+    while (!getInstance<config>()->shouldExit()) {
+        // All off
+        apply_step_pwm({0,0,0,0,0,0}, 0.0f, tm);
+        // Dead time
+        mcl::delay_us(2);
+        // Next commutation step
+        duty = 0.90; //getInstance<config>()->getKeyValue(config::key::motor);
+        apply_step_pwm(comm_table[step], duty, tm);
+        // Hold for the motor to react
+        mcl::sleep_ms(5);
+        step = (step + 1) % 6;
+    }
+    apply_step_pwm({0,0,0,0,0,0}, 0.0f, tm);
+    timer_stop(&tm);
+}
+
 // Complementary PWM on LS and HS with harware dead time insertion
 inline void test_bldc_trapezoidal_pwm_comp() {
-    Timer_Config_t tm{};
+    timer_config_t tm{};
     tm.instance = TIM1;
     timer_init(&tm);
     // 20KHz BLDC frequency
@@ -327,52 +376,74 @@ inline void test_bldc_trapezoidal_pwm_comp() {
     timer_stop(&tm);
 }
 
-// PWM on the HS, LL on the LS, manual dead time insertion
-inline void test_bldc_trapezoidal_pwm() {
-    // Enable clock for LS pins
-    mcl::enableClockForGpio(GPIOA);
-    // Clear mode bits for PA1, PA3, PA5 as GPIO outputs (LU, LV, LW)
-    GPIOA->MODER &= ~((3 << (1 * 2)) | (3 << (3 * 2)) | (3 << (5 * 2)));
-    // Set PA1, PA3, PA5 as GP outputs (LU, LV, LW)
-    GPIOA->MODER |=  ((1 << (1 * 2)) | (1 << (3 * 2)) | (1 << (5 * 2)));
-    // Configure TIM4 CH1-CH3 on PB6, PB7, PB8 as High-Side PWM outputs (HU, HV, HW)
-    Timer_Config_t tm{};
-    tm.instance = TIM4;
-    timer_init(&tm);
-    // 20KHz BLDC frequency
-    timer_set_frequency(&tm, 20'000);
+struct ramp_profile_t {
+    float f_start;        // Hz, starting electrical frequency
+    float f_end;          // Hz, target electrical frequency
+    float m_start;        // starting modulation (0..0.866)
+    float m_end;          // target modulation
+    float duration_s;     // ramp duration in seconds
+};
 
-    static const uint8_t pins[] = {6, 7, 8};
-    timer_init_gpio(GPIOB, pins, 3, 2); // AF2
-    // TIM4 CH1 PB6
-    timer_init_channel(&tm, 1, GPIOB, 6, nullptr, 0);
-    timer_set_duty_cycle(&tm, 1, 0.0f);
-    timer_start_channel(&tm, 1, false);
-    // TIM4 CH2 PB7
-    timer_init_channel(&tm, 2, GPIOB, 7, nullptr, 0);
-    timer_set_duty_cycle(&tm, 2, 0.0f);
-    timer_start_channel(&tm, 2, false);
-    // TIM4 CH3 PB8
-    timer_init_channel(&tm, 3, GPIOB, 8, nullptr, 0);
-    timer_set_duty_cycle(&tm, 3, 0.0f);
-    timer_start_channel(&tm, 3, false);
-    // Start the timer
+static inline void svpwm_ramp_apply(svpwm_t *svp, const ramp_profile_t *ramp, float t_elapsed_s) {
+    float frac = t_elapsed_s / ramp->duration_s;
+    if (frac > 1.0f) frac = 1.0f;
+    svp->modulation = ramp->m_start + frac * (ramp->m_end - ramp->m_start);
+    svp->electrical_frequency = ramp->f_start + frac * (ramp->f_end - ramp->f_start);
+}
+
+inline void test_svpwm() {
+    timer_config_t tm{};
+    tm.instance = TIM1;
+    tm.mode = cms::ca1;
+    timer_init(&tm);
+    timer_set_frequency(&tm, 20000);
+
+    static const uint8_t hs[] = {8, 9, 10};
+    static const uint8_t ls[] = {13, 14, 15};
+    timer_init_gpio(GPIOA, hs, 3, 1);
+    timer_init_gpio(GPIOB, ls, 3, 1);
+
+    timer_set_dead_time(&tm, 250);
+
+    timer_init_channel(&tm, 1, GPIOA, 8, GPIOB, 13);
+    timer_init_channel(&tm, 2, GPIOA, 9, GPIOB, 14);
+    timer_init_channel(&tm, 3, GPIOA, 10, GPIOB, 15);
+
+    timer_start_channel(&tm, 1, true);
+    timer_start_channel(&tm, 2, true);
+    timer_start_channel(&tm, 3, true);
+
+    g_svpwm.timer = &tm;
+    g_svpwm.angle = 0.0f;
+    // If TIM1 generates one update interrupt per PWM
+    // period, then: update_frequency = PWM frequency
+    g_svpwm.svpwm_update_frequency = 20000.0f;
+
+    // Open-loop startup ramp
+    ramp_profile_t ramp{};
+    ramp.f_start    = 5.0f;    // Hz rotation electrical -> ~43 RPM mechanical (7 pole pairs)
+    ramp.f_end      = 40.0f;   // Hz rotation electrical -> conservative target, tune upward later
+    ramp.m_start    = 0.03f;   // low push -- stay well under 1A max at standstill
+    ramp.m_end      = 0.08f;   // still conservative; raise only after confirming smooth spin
+    ramp.duration_s = 5.0f;    // slow ramp for first test
+
+    g_svpwm.modulation = ramp.m_start;
+    g_svpwm.electrical_frequency = ramp.f_start;
+
+    timer_enable_interrupt(&tm);
+    uint32_t t_start_ms = mcl::time_ms();
     timer_start(&tm);
-    int step = 0;
-    float duty = 0.90f;
+
+    uint32_t last_update_ms = 0;
     while (!getInstance<config>()->shouldExit()) {
-        // All off
-        apply_step_pwm({0,0,0,0,0,0}, 0.0f, tm);
-        // Dead time
-        mcl::delay_us(2);
-        // Next commutation step
-        duty = 0.90; //getInstance<config>()->getKeyValue(config::key::motor);
-        apply_step_pwm(comm_table[step], duty, tm);
-        // Hold for the motor to react
-        mcl::sleep_ms(5);
-        step = (step + 1) % 6;
+        __WFI();
+        uint32_t now_ms = mcl::time_ms();
+        uint32_t elapsed_ms = now_ms - t_start_ms;
+        if ((now_ms - last_update_ms) >= 1) {
+            svpwm_ramp_apply(&g_svpwm, &ramp, elapsed_ms / 1000.0f);
+            last_update_ms = now_ms;
+        }
     }
-    apply_step_pwm({0,0,0,0,0,0}, 0.0f, tm);
     timer_stop(&tm);
 }
 
@@ -381,4 +452,5 @@ void test_bldc_trapezoidal_ll() {}
 void test_bldc_sinusoidal_wave() {}
 void test_bldc_trapezoidal_pwm() {}
 void test_bldc_trapezoidal_pwm_comp() {}
+void test_svpwm() {}
 #endif

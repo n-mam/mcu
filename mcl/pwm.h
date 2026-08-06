@@ -26,7 +26,7 @@ struct pwm {
     uint64_t f_clock = 125000000;
     double f_minimum = 1907.34863281;
     #elif defined (STM32)
-    Timer_Config_t _timer{};
+    timer_config_t _timer{};
     #endif
 
     pwm(int pin, int frequency) {

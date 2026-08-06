@@ -277,7 +277,7 @@ inline void adc_tim_dma_test() {
     dma_init(&dma);
     dma_enable_irq(&dma);
     // Timer config
-    Timer_Config_t tim{};
+    timer_config_t tim{};
     tim.instance = TIM2;
     timer_init(&tim);
     timer_set_frequency(&tim, 1000);

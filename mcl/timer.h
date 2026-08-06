@@ -13,35 +13,58 @@ typedef struct {
     float dutyCycle;
     GPIO_TypeDef *port;
     GPIO_TypeDef *port_n;
-} Timer_Channel_t;
+} timer_channel_t;
+
+// center aligned mode setting
+enum cms { ea, ca1, ca2, ca3 };
 
 typedef struct {
+    cms mode;
     float *lut;
     uint32_t arr;
     uint32_t lutSize;
     uint32_t frequency;
     TIM_TypeDef *instance;
-    Timer_Channel_t channel[5];
-} Timer_Config_t;
+    timer_channel_t channel[5];
+} timer_config_t;
 
-static Timer_Config_t *timer2_cfg = NULL;
+typedef struct {
+    timer_config_t *timer;
+    float angle;                    // current electrical angle (rad)
+    float modulation;               // 0..0.866
+    float electrical_frequency;     // electrical field speed (Hz)
+    float svpwm_update_frequency;
+} svpwm_t;
 
-static inline bool timer_is_advanced(const Timer_Config_t *cfg) {
+static svpwm_t g_svpwm;
+
+static timer_config_t *timer2_cfg = NULL;
+
+static inline bool timer_is_advanced(const timer_config_t *cfg) {
     return (cfg->instance == TIM1);
 }
 
-static inline uint32_t timer_clock(const Timer_Config_t *cfg) {
+static inline uint32_t timer_clock(const timer_config_t *cfg) {
     return timer_is_advanced(cfg) ?
         mcl::apb2TimerClock() : mcl::apb1TimerClock();
 }
 
-static inline void timer_init(const Timer_Config_t *cfg) {
+static inline void timer_init(const timer_config_t *cfg) {
     mcl::enableClockForTimer(cfg->instance);
     cfg->instance->PSC = (timer_clock(cfg) / 1000000U) - 1U;
-    cfg->instance->CR1 = 0;
-    cfg->instance->CR1 |= TIM_CR1_ARPE;
+    cfg->instance->CR1 = TIM_CR1_ARPE;
+    if (timer_is_advanced(cfg) && (cfg->mode == cms::ca1)) {
+        // center aligned mode 1
+        cfg->instance->CR1 |= TIM_CR1_CMS_0;
+        // for advanced timers, with RCR = 0 in center-aligned mode,
+        // an update event (and thus the ISR) is generated at both the
+        // counter overflow and underflow — i.e., twice per PWM period,
+        // so the ISR will actually run at 40 kHz, not 20 kHz. That will
+        // silently double the effective angle-advance rate
+        cfg->instance->RCR = 1;
+    }
     // if (cfg->instance == TIM2) {
-    //     timer2_cfg = (Timer_Config_t *)cfg;
+    //     timer2_cfg = (timer_config_t *)cfg;
     // }
 }
 
@@ -66,7 +89,7 @@ static inline void timer_init_gpio(GPIO_TypeDef *port, const uint8_t *pins,
     }
 }
 
-static inline void timer_init_channel(Timer_Config_t *cfg, uint8_t ch, GPIO_TypeDef *port,
+static inline void timer_init_channel(timer_config_t *cfg, uint8_t ch, GPIO_TypeDef *port,
         uint8_t pin, GPIO_TypeDef *port_n, uint8_t pin_n) {
     cfg->channel[ch].port = port;
     cfg->channel[ch].pin = pin;
@@ -108,7 +131,7 @@ static inline void timer_init_channel(Timer_Config_t *cfg, uint8_t ch, GPIO_Type
     }
 }
 
-static inline void timer_set_dead_time(const Timer_Config_t *cfg, uint32_t dt_ns) {
+static inline void timer_set_dead_time(const timer_config_t *cfg, uint32_t dt_ns) {
     // dead time is clocked directly using using TIM1/8 input clock which is
     // APB2 (either scaled or as-is). This is same as CLK_PSC BEFORE
     // it gets divided by the timer's PSC factor, post which it becomes
@@ -123,7 +146,7 @@ static inline void timer_set_dead_time(const Timer_Config_t *cfg, uint32_t dt_ns
     // first (linear) dead-time range, where DTG = DT_ticks TODO
 }
 
-static inline void timer_start_channel(const Timer_Config_t *cfg, uint8_t ch, bool complementary) {
+static inline void timer_start_channel(const timer_config_t *cfg, uint8_t ch, bool complementary) {
     switch (ch) {
         case 1:
             // CC1 output enable and enable complementary output
@@ -150,7 +173,7 @@ static inline void timer_start_channel(const Timer_Config_t *cfg, uint8_t ch, bo
     }
 }
 
-static inline void timer_stop_channel(const Timer_Config_t *cfg, uint8_t ch) {
+static inline void timer_stop_channel(const timer_config_t *cfg, uint8_t ch) {
     switch (ch) {
         case 1: cfg->instance->CCER &= ~TIM_CCER_CC1E; break;
         case 2: cfg->instance->CCER &= ~TIM_CCER_CC2E; break;
@@ -159,18 +182,22 @@ static inline void timer_stop_channel(const Timer_Config_t *cfg, uint8_t ch) {
     }
 }
 
-static inline void timer_set_frequency(Timer_Config_t *cfg, uint32_t frequency) {
+static inline void timer_set_frequency(timer_config_t *cfg, uint32_t frequency) {
     cfg->frequency = frequency;
     // Timer clock frequency => 1MHz
     uint32_t clk = timer_clock(cfg) / (cfg->instance->PSC + 1);
     // Calculate ARR count value to have the desired output PWM frequency
-    cfg->arr = (clk / frequency) - 1;
+    if (timer_is_advanced(cfg) && (cfg->mode != cms::ea)) {
+        cfg->arr = (clk / (2 * frequency)) - 1; // center aligned
+    } else {
+        cfg->arr = (clk / frequency) - 1; // left aligned
+    }
     // Set auto reload register for the desired output signal frequency
     cfg->instance->ARR = cfg->arr;
     //init_sine_table();
 }
 
-static inline void timer_set_duty_cycle(Timer_Config_t *cfg, uint8_t ch, float duty) {
+static inline void timer_set_duty_cycle(timer_config_t *cfg, uint8_t ch, float duty) {
     cfg->channel[ch].dutyCycle = duty;
     // CCR value configures the PWM duty cycle
     uint32_t ccr = (uint32_t)(duty * (cfg->arr + 1));
@@ -183,17 +210,19 @@ static inline void timer_set_duty_cycle(Timer_Config_t *cfg, uint8_t ch, float d
     }
 }
 
-static inline void timer_enable_trgo(const Timer_Config_t *cfg) {
+static inline void timer_enable_trgo(const timer_config_t *cfg) {
     cfg->instance->CR2 &= ~TIM_CR2_MMS;
      // Update Event
     cfg->instance->CR2 |= TIM_CR2_MMS_1;
 }
 
-static inline void timer_enable_interrupt(const Timer_Config_t *cfg) {
+static inline void timer_enable_interrupt(const timer_config_t *cfg) {
     // Enable update event interrupt
     cfg->instance->DIER |= TIM_DIER_UIE;
     // Enable TIM IRQ in NVIC
-    if (cfg->instance == TIM2)
+    if (cfg->instance == TIM1)
+        NVIC_EnableIRQ(TIM1_UP_TIM10_IRQn);
+    else if (cfg->instance == TIM2)
         NVIC_EnableIRQ(TIM2_IRQn);
     else if (cfg->instance == TIM3)
         NVIC_EnableIRQ(TIM3_IRQn);
@@ -203,7 +232,7 @@ static inline void timer_enable_interrupt(const Timer_Config_t *cfg) {
         NVIC_EnableIRQ(TIM5_IRQn);
 }
 
-static inline void timer_start(const Timer_Config_t *cfg) {
+static inline void timer_start(const timer_config_t *cfg) {
     // Force an update event
     cfg->instance->EGR = TIM_EGR_UG;
     // Reset counter
@@ -218,7 +247,7 @@ static inline void timer_start(const Timer_Config_t *cfg) {
     cfg->instance->CR1 |= TIM_CR1_CEN;
 }
 
-static inline void timer_stop(const Timer_Config_t *cfg) {
+static inline void timer_stop(const timer_config_t *cfg) {
     if (timer_is_advanced(cfg))
         cfg->instance->BDTR &= ~TIM_BDTR_MOE;
     cfg->instance->CR1 &= ~TIM_CR1_CEN;
@@ -229,14 +258,14 @@ static inline void timer_stop(const Timer_Config_t *cfg) {
 // We then set ARR to configure the actual PWM frequency to say 50 Hz
 // This implies that we have 50 pwm pulses in 1 sec, each of which is
 // available for a single sinusoidal duty cycle increment step.
-static inline void timer_init_sine_table(Timer_Config_t *cfg) {
+static inline void timer_init_sine_table(timer_config_t *cfg) {
     double step = M_PI / cfg->frequency;
     for (uint32_t i = 0; i <= cfg->frequency; i++)
         cfg->lut[i] = sin(i * step);
     cfg->lutSize = cfg->frequency + 1;
 }
 
-static inline void timer_sinusoidal_next_step(Timer_Config_t *cfg, uint8_t ch) {
+static inline void timer_sinusoidal_next_step(timer_config_t *cfg, uint8_t ch) {
     uint16_t *step = &cfg->channel[ch].step;
     timer_set_duty_cycle(cfg, ch, cfg->lut[*step]);
     (*step)++;
@@ -244,7 +273,74 @@ static inline void timer_sinusoidal_next_step(Timer_Config_t *cfg, uint8_t ch) {
         *step = 0;
 }
 
-extern "C" {
+// standard symmetric SVPWM dwell-time equations
+// T1 = √3 m sin(60°−α)
+// T2 = √3 m sin(α)
+// T0 = 1−T1−T2
+static inline void svpwm_update(svpwm_t *svp) {
+    constexpr float PI = 3.14159265359f;
+    constexpr float PI3 = PI / 3.0f;
+    constexpr float SQRT3 = 1.73205080757f;
+    float theta = svp->angle;
+    int sector = (int)(theta / PI3) % 6;
+    float alpha = theta - sector * PI3;
+    float m = svp->modulation;
+    //-------------------------------------
+    // normalized switching times
+    //-------------------------------------
+    float T1 = SQRT3 * m * sinf(PI3 - alpha);
+    float T2 = SQRT3 * m * sinf(alpha);
+    if(T1 + T2 > 1.0f) {
+        float s = 1.0f / (T1 + T2);
+        T1 *= s;
+        T2 *= s;
+    }
+    float T0 = 1.0f - T1 - T2;
+    float Ta = 0.0f, Tb = 0.0f, Tc = 0.0f;
+    switch(sector) {
+        case 0:
+            Ta = T1 + T2 + T0*0.5f;
+            Tb = T2 + T0*0.5f;
+            Tc = T0*0.5f;
+            break;
+        case 1:
+            Ta = T1 + T0*0.5f;
+            Tb = T1 + T2 + T0*0.5f;
+            Tc = T0*0.5f;
+            break;
+        case 2:
+            Ta = T0*0.5f;
+            Tb = T1 + T2 + T0*0.5f;
+            Tc = T2 + T0*0.5f;
+            break;
+        case 3:
+            Ta = T0*0.5f;
+            Tb = T1 + T0*0.5f;
+            Tc = T1 + T2 + T0*0.5f;
+            break;
+        case 4:
+            Ta = T2 + T0*0.5f;
+            Tb = T0*0.5f;
+            Tc = T1 + T2 + T0*0.5f;
+            break;
+        case 5:
+            Ta = T1 + T2 + T0*0.5f;
+            Tb = T0*0.5f;
+            Tc = T1 + T0*0.5f;
+            break;
+    }
+    uint32_t arr = svp->timer->arr + 1;
+    svp->timer->instance->CCR1 = (uint32_t)(Ta * arr);
+    svp->timer->instance->CCR2 = (uint32_t)(Tb * arr);
+    svp->timer->instance->CCR3 = (uint32_t)(Tc * arr);
+    float angle_step = (2.0f * PI * svp->electrical_frequency) / svp->svpwm_update_frequency;
+    svp->angle += angle_step;
+    if (svp->angle >= 2.0f * PI) {
+        svp->angle -= 2.0f * PI;
+    }
+}
+
+extern "C"
     void TIM2_IRQHandler(void) {
         if (TIM2->SR & TIM_SR_UIF) {
             // Clear interrupt flag
@@ -256,7 +352,14 @@ extern "C" {
             }
         }
     }
-}
+
+extern "C"
+    void TIM1_UP_TIM10_IRQHandler(void) {
+        if(TIM1->SR & TIM_SR_UIF) {
+            TIM1->SR &= ~TIM_SR_UIF;
+            svpwm_update(&g_svpwm);
+        }
+    }
 
 inline void tim_test() {
     // RCC->APB1ENR |= RCC_APB1ENR_TIM2EN;
@@ -269,7 +372,7 @@ inline void tim_test() {
     //     LOG << " " << (int)TIM2->CNT;
     //     mcl::sleep_ms(100);
     // }
-    Timer_Config_t tim{};
+    timer_config_t tim{};
     tim.instance = TIM2;
     timer_init(&tim);
     timer_set_frequency(&tim, 777);
