@@ -334,9 +334,8 @@ struct ramp_profile_t {
     // Electrical frequency ramp [Hz]
     float ef_start;
     float ef_end;
-    // SVPWM modulation ramp [0..0.866]
+    // linear svpwm modulation ramp [0 ... 0.57735026] 1/sqrt(3)
     // This is Vref / Vbus.
-    // 0.5f therefore means Vref = 50% of Vbus.
     float m_start;
     float m_end;
     // Trapezoidal PWM duty ramp [0..1]
@@ -396,7 +395,7 @@ inline void test_bldc_trapezoidal_pwm_comp() {
     // 5 Hz -> 30 Hz electrical
     ramp.ef_start = 5.0f;
     ramp.ef_end   = 30.0f;
-    // Unused by trapezoidal mode.
+    // Unused in trapezoidal mode.
     ramp.m_start = 0.0f;
     ramp.m_end   = 0.0f;
     // PWM duty:
@@ -476,7 +475,7 @@ inline void test_bldc_svpwm() {
     timer_init_gpio(GPIOA, hs, 3, 1);
     timer_init_gpio(GPIOB, ls, 3, 1);
 
-    timer_set_dead_time(&tm, 250);
+    //timer_set_dead_time(&tm, 250);
 
     timer_init_channel(&tm, 1, GPIOA, 8, GPIOB, 13);
     timer_init_channel(&tm, 2, GPIOA, 9, GPIOB, 14);
@@ -498,15 +497,15 @@ inline void test_bldc_svpwm() {
     g_svpwm.svpwm_update_frequency = 20'000.0f;
 
     ramp_profile_t ramp{};
-    // SVPWM modulation:
-    // 0.15 -> 0.5 Vbus
-    // i.e. Vref ramps from 15% to 50% of the DC bus.
-    ramp.m_start = 0.15f;
-    ramp.m_end   = 0.65f;
+    // svpm modulation:
+    // vref ramps from 15% to liear svpm
+    // max modulation for the DC bus.
+    ramp.m_start = 0.10f;
+    ramp.m_end   = 0.57735026f;
     // Electrical frequency:
     // 5 Hz -> 40 Hz electrical
     ramp.ef_start = 5.0f;
-    ramp.ef_end   = 30.0f;
+    ramp.ef_end   = 35.0f; //ok: 10, notok:40
     // Trapezoidal fields are unused here.
     ramp.trap_duty_start = 0.0f;
     ramp.trap_duty_end   = 0.0f;
