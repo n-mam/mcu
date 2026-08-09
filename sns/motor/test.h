@@ -499,19 +499,19 @@ inline void test_bldc_svpwm() {
 
     ramp_profile_t ramp{};
     // SVPWM modulation:
-    // 0.0 -> 0.5 Vbus
-    // i.e. Vref ramps from zero to 50% of the DC bus.
-    ramp.m_start = 0.0f;
-    ramp.m_end   = 0.5f;
+    // 0.15 -> 0.5 Vbus
+    // i.e. Vref ramps from 15% to 50% of the DC bus.
+    ramp.m_start = 0.15f;
+    ramp.m_end   = 0.65f;
     // Electrical frequency:
     // 5 Hz -> 40 Hz electrical
     ramp.ef_start = 5.0f;
-    ramp.ef_end   = 40.0f;
+    ramp.ef_end   = 30.0f;
     // Trapezoidal fields are unused here.
     ramp.trap_duty_start = 0.0f;
     ramp.trap_duty_end   = 0.0f;
     // Both modulation and frequency use this same duration.
-    ramp.duration_s = 5.0f;
+    ramp.duration_s = 8.0f;
     // Initial SVPWM state.
     g_svpwm.modulation = ramp.m_start;
     g_svpwm.electrical_frequency = ramp.ef_start;
