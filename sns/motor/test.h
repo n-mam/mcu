@@ -330,6 +330,34 @@ inline void test_bldc_trapezoidal_pwm() {
     timer_stop(&tm);
 }
 
+struct ramp_profile_t {
+    // Electrical frequency ramp [Hz]
+    float ef_start;
+    float ef_end;
+    // SVPWM modulation ramp [0..0.866]
+    // This is Vref / Vbus.
+    // 0.5f therefore means Vref = 50% of Vbus.
+    float m_start;
+    float m_end;
+    // Trapezoidal PWM duty ramp [0..1]
+    float trap_duty_start;
+    float trap_duty_end;
+    // Ramp duration [seconds]
+    float duration_s;
+};
+
+static inline float ramp_value(float start, float end,
+    float duration_s, float elapsed_s) {
+        if (duration_s <= 0.0f)
+            return end;
+        float frac = elapsed_s / duration_s;
+        if (frac <= 0.0f)
+            frac = 0.0f;
+        else if (frac >= 1.0f)
+            frac = 1.0f;
+        return start + frac * (end - start);
+}
+
 // Complementary PWM on LS and HS with harware dead time insertion
 inline void test_bldc_trapezoidal_pwm_comp() {
     timer_config_t tm{};
@@ -337,7 +365,6 @@ inline void test_bldc_trapezoidal_pwm_comp() {
     timer_init(&tm);
     // 20KHz BLDC frequency
     timer_set_frequency(&tm, 20'000);
-    // 8, 9, 10 --> CH1, CH2, CH3
     static const uint8_t hs_pins[] = {8, 9, 10};
     static const uint8_t ls_pins[] = {13, 14, 15};
     // 8, 9, 10 --> CH1, CH2, CH3
@@ -348,7 +375,7 @@ inline void test_bldc_trapezoidal_pwm_comp() {
     // TMC6300 has BBM (Break before Make)
     // internal hardware dead time so we really
     // dont need external dead time setup via mcu
-    timer_set_dead_time(&tm, 250);
+    //timer_set_dead_time(&tm, 250);
     // initialize all channels
     timer_init_channel(&tm, 1, GPIOA, 8, GPIOB, 13);
     timer_set_duty_cycle(&tm, 1, 0.0f);
@@ -363,35 +390,81 @@ inline void test_bldc_trapezoidal_pwm_comp() {
     timer_start_channel(&tm, 3, true);
     // Start the timer
     timer_start(&tm);
+
+    ramp_profile_t ramp{};
+    // Electrical frequency:
+    // 5 Hz -> 30 Hz electrical
+    ramp.ef_start = 5.0f;
+    ramp.ef_end   = 30.0f;
+    // Unused by trapezoidal mode.
+    ramp.m_start = 0.0f;
+    ramp.m_end   = 0.0f;
+    // PWM duty:
+    // 15% -> 75%
+    ramp.trap_duty_start = 0.15f;
+    ramp.trap_duty_end   = 0.75f;
+    // Ramp duration.
+    ramp.duration_s = 8.0f;
+    const uint32_t ramp_start_ms = mcl::time_ms();
+    uint32_t last_commutation_ms = ramp_start_ms;
     int step = 0;
+    // ramp duty and electrical frequency simultaneously:
+    //     duty:
+    //         trap_duty_start -> trap_duty_end
+    //     electrical frequency:
+    //         ef_start -> ef_end
+    // The six-step commutation period is derived from the
+    // instantaneous electrical frequency:
+    //     Tstep = 1 / (6 * electrical_frequency)
     while (!getInstance<config>()->shouldExit()) {
-        // Next commutation step
-        constexpr float duty = 0.60f;  //getInstance<config>()->getKeyValue(config::key::motor);
-        apply_step_pwm(comm_table[step], duty, tm, true);
-        // Hold for the motor to react
-        mcl::sleep_ms(15);
-        step = (step + 1) % 6;
+        // Sleep until an interrupt wakes us.
+        // SysTick is active, so the foreground loop does not busy-wait.
+        __WFI();
+        uint32_t now_ms = mcl::time_ms();
+        float elapsed_s =
+            (float)(now_ms - ramp_start_ms) * 0.001f;
+        // Ramp duty and electrical frequency from the SAME elapsed time.
+        float duty =
+            ramp_value(
+                ramp.trap_duty_start,
+                ramp.trap_duty_end,
+                ramp.duration_s,
+                elapsed_s);
+        float electrical_frequency =
+            ramp_value(
+                ramp.ef_start,
+                ramp.ef_end,
+                ramp.duration_s,
+                elapsed_s);
+        // Six-step commutation period.
+        // One electrical revolution contains six commutation steps:
+        //     Tstep = 1 / (6 * electrical_frequency)
+        // Convert to milliseconds.
+        if (electrical_frequency > 0.0f) {
+            float step_period_ms =
+                1000.0f / (6.0f * electrical_frequency);
+            uint32_t step_period_ms_u = (uint32_t)step_period_ms;
+            // Avoid a zero-period loop at very high frequency.
+            if (step_period_ms_u < 1U)
+                step_period_ms_u = 1U;
+            if ((uint32_t)(now_ms - last_commutation_ms) >= step_period_ms_u) {
+                // Keep the schedule relative to the previous
+                // commutation event rather than "now".
+                last_commutation_ms += step_period_ms_u;
+                apply_step_pwm(
+                    comm_table[step],
+                    duty,
+                    tm,
+                    true);
+                step = (step + 1) % 6;
+            }
+        }
     }
     apply_step_pwm({0,0,0,0,0,0}, 0.0f, tm, true);
     timer_stop(&tm);
 }
 
-struct ramp_profile_t {
-    float f_start;        // Hz, starting electrical frequency
-    float f_end;          // Hz, target electrical frequency
-    float m_start;        // starting modulation (0..0.866)
-    float m_end;          // target modulation
-    float duration_s;     // ramp duration in seconds
-};
-
-static inline void svpwm_ramp_apply(svpwm_t *svp, const ramp_profile_t *ramp, float t_elapsed_s) {
-    float frac = t_elapsed_s / ramp->duration_s;
-    if (frac > 1.0f) frac = 1.0f;
-    svp->modulation = ramp->m_start + frac * (ramp->m_end - ramp->m_start);
-    svp->electrical_frequency = ramp->f_start + frac * (ramp->f_end - ramp->f_start);
-}
-
-inline void test_svpwm() {
+inline void test_bldc_svpwm() {
     timer_config_t tm{};
     tm.instance = TIM1;
     tm.mode = cms::ca1;
@@ -415,33 +488,71 @@ inline void test_svpwm() {
 
     g_svpwm.timer = &tm;
     g_svpwm.angle = 0.0f;
-    // If TIM1 generates one update interrupt per PWM
-    // period, then: update_frequency = PWM frequency
-    g_svpwm.svpwm_update_frequency = 20000.0f;
+    // TIM1 generates one update interrupt per PWM
+    // period then: update_frequency = PWM frequency
+    // TIM1 is configured as:
+    //     20 kHz PWM
+    //     center aligned
+    //     RCR = 1
+    // Therefore svpwm_update() is intended to execute at 20 kHz.
+    g_svpwm.svpwm_update_frequency = 20'000.0f;
 
-    // Open-loop startup ramp
     ramp_profile_t ramp{};
-    ramp.f_start    = 5.0f;    // Hz rotation electrical -> ~43 RPM mechanical (7 pole pairs)
-    ramp.f_end      = 40.0f;   // Hz rotation electrical -> conservative target, tune upward later
-    ramp.m_start    = 0.03f;   // low push -- stay well under 1A max at standstill
-    ramp.m_end      = 0.08f;   // still conservative; raise only after confirming smooth spin
-    ramp.duration_s = 5.0f;    // slow ramp for first test
-
+    // SVPWM modulation:
+    // 0.0 -> 0.5 Vbus
+    // i.e. Vref ramps from zero to 50% of the DC bus.
+    ramp.m_start = 0.0f;
+    ramp.m_end   = 0.5f;
+    // Electrical frequency:
+    // 5 Hz -> 40 Hz electrical
+    ramp.ef_start = 5.0f;
+    ramp.ef_end   = 40.0f;
+    // Trapezoidal fields are unused here.
+    ramp.trap_duty_start = 0.0f;
+    ramp.trap_duty_end   = 0.0f;
+    // Both modulation and frequency use this same duration.
+    ramp.duration_s = 5.0f;
+    // Initial SVPWM state.
     g_svpwm.modulation = ramp.m_start;
-    g_svpwm.electrical_frequency = ramp.f_start;
+    g_svpwm.electrical_frequency = ramp.ef_start;
 
     timer_enable_interrupt(&tm);
-    uint32_t t_start_ms = mcl::time_ms();
-    timer_start(&tm);
 
-    uint32_t last_update_ms = 0;
+    const uint32_t ramp_start_ms = mcl::time_ms();
+    timer_start(&tm);
+    uint32_t last_ramp_update_ms = ramp_start_ms;
+
     while (!getInstance<config>()->shouldExit()) {
+        // TIM1 update interrupt and SysTick can wake the processor.
+        // TIM1 ISR:
+        //     svpwm_update(&g_svpwm);
+        // SysTick:
+        //     advances mcl::time_ms()
         __WFI();
+
         uint32_t now_ms = mcl::time_ms();
-        uint32_t elapsed_ms = now_ms - t_start_ms;
-        if ((now_ms - last_update_ms) >= 1) {
-            svpwm_ramp_apply(&g_svpwm, &ramp, elapsed_ms / 1000.0f);
-            last_update_ms = now_ms;
+        // The ramp itself is very slow compared with the 20 kHz
+        // PWM interrupt, so a 1 ms foreground update is sufficient.
+        if ((uint32_t)(now_ms - last_ramp_update_ms) >= 1U) {
+            float elapsed_s = (float)(now_ms - ramp_start_ms) * 0.001f;
+            // Both values use EXACTLY the same elapsed_s.
+            // Therefore the voltage and frequency ramps are
+            // synchronized.
+            g_svpwm.modulation =
+                ramp_value(
+                    ramp.m_start,
+                    ramp.m_end,
+                    ramp.duration_s,
+                    elapsed_s);
+
+            g_svpwm.electrical_frequency =
+                ramp_value(
+                    ramp.ef_start,
+                    ramp.ef_end,
+                    ramp.duration_s,
+                    elapsed_s);
+
+            last_ramp_update_ms = now_ms;
         }
     }
     timer_stop(&tm);
