@@ -259,21 +259,21 @@ inline void adc_tim_dma_test() {
     adc_global_init();
     adc_init(&adc);
     // DMA configurtion
-    DMA_Config_t dma = {
-        0,                          // channel
-        DMA_SxCR_MSIZE_0,           // memorySize (16-bit)
-        true,                       // circularMode
-        DMA2,                       // instance
-        1024,                       // transferCount
-        true,                       // memoryIncrement
-        DMA_SxCR_PSIZE_0,           // peripheralSize (16-bit)
-        DMA_DIR_PER_TO_MEM,         // direction
-        DMA2_Stream0,               // stream
-        false,                      // peripheralIncrement
-        adc_buffer,                 // memoryAddress
-        &ADC1->DR,                  // peripheralAddress
-        dma_callback                // interrupt handler
-    };
+    DMA_Config_t dma = {};
+    dma.channel = 0;
+    dma.instance = DMA2;
+    dma.circularMode = true;
+    dma.transferCount = 1024;
+    dma.stream = DMA2_Stream0;
+    dma.memoryIncrement = true;
+    dma.memoryAddress = adc_buffer;
+    dma.peripheralIncrement = false;
+    dma.memorySize = DMA_SxCR_MSIZE_0;
+    dma.peripheralAddress = &ADC1->DR;
+    dma.direction = DMA_DIR_PER_TO_MEM;
+    dma.transfer_callback = dma_callback;
+    dma.peripheralSize = DMA_SxCR_PSIZE_0;
+
     dma_init(&dma);
     dma_enable_irq(&dma);
     // Timer config

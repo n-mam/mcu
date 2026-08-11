@@ -290,6 +290,9 @@ static inline void svpwm_update(svpwm_t *svp) {
     //-------------------------------------
     float T1 = SQRT3 * m * sinf(PI3 - alpha);
     float T2 = SQRT3 * m * sinf(alpha);
+    // this is redundant if we gurantee that
+    // the modulation would be inside the linear
+    // range which is 1/sqrt(3) of Vbus
     if(T1 + T2 > 1.0f) {
         float s = 1.0f / (T1 + T2);
         T1 *= s;

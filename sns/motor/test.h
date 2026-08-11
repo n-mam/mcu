@@ -497,15 +497,15 @@ inline void test_bldc_svpwm() {
     g_svpwm.svpwm_update_frequency = 20'000.0f;
 
     ramp_profile_t ramp{};
-    // svpm modulation:
-    // vref ramps from 15% to liear svpm
-    // max modulation for the DC bus.
+    // svpm modulation
+    // start to max liear svpm modulation
     ramp.m_start = 0.10f;
     ramp.m_end   = 0.57735026f;
-    // Electrical frequency:
-    // 5 Hz -> 40 Hz electrical
-    ramp.ef_start = 5.0f;
-    ramp.ef_end   = 35.0f; //ok: 10, notok:40
+    // Electrical frequency: (all off 5V Vbus)
+    // 5 Hz -> 35 Hz electrical (hard disk motor)
+    // 2 Hz -> 3 Hz electrcal (2804 3-Phase gimbal dfrobot)
+    ramp.ef_start = 2.0f;
+    ramp.ef_end   = 3.0f; //ok:7, notok:40
     // Trapezoidal fields are unused here.
     ramp.trap_duty_start = 0.0f;
     ramp.trap_duty_end   = 0.0f;
@@ -528,7 +528,6 @@ inline void test_bldc_svpwm() {
         // SysTick:
         //     advances mcl::time_ms()
         __WFI();
-
         uint32_t now_ms = mcl::time_ms();
         // The ramp itself is very slow compared with the 20 kHz
         // PWM interrupt, so a 1 ms foreground update is sufficient.
@@ -543,14 +542,12 @@ inline void test_bldc_svpwm() {
                     ramp.m_end,
                     ramp.duration_s,
                     elapsed_s);
-
             g_svpwm.electrical_frequency =
                 ramp_value(
                     ramp.ef_start,
                     ramp.ef_end,
                     ramp.duration_s,
                     elapsed_s);
-
             last_ramp_update_ms = now_ms;
         }
     }

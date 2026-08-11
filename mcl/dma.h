@@ -12,7 +12,6 @@ typedef enum {
 } DMA_Direction_t;
 
 typedef void (*transfer_callback_t)(int);
-transfer_callback_t transfer_callback;
 
 struct DMA_Config_t {
     uint32_t channel;
@@ -30,22 +29,65 @@ struct DMA_Config_t {
     transfer_callback_t transfer_callback;
 };
 
-static inline void dma_clear_flags(DMA_Stream_TypeDef *stream) {
-    if(stream == DMA2_Stream0) {
+const DMA_Config_t * dma_stream_cfg[2][8] = {nullptr};
+
+static inline void dma_clear_flags(const DMA_Config_t *cfg) {
+    // add to these as per use
+    if (cfg->stream == DMA2_Stream0) {
         DMA2->LIFCR = DMA_LIFCR_CFEIF0 | DMA_LIFCR_CDMEIF0 |
             DMA_LIFCR_CTEIF0 | DMA_LIFCR_CHTIF0 | DMA_LIFCR_CTCIF0;
+    } else if (cfg->stream == DMA2_Stream1) {
+        DMA2->LIFCR = DMA_LIFCR_CFEIF1 | DMA_LIFCR_CDMEIF1 |
+            DMA_LIFCR_CTEIF1 | DMA_LIFCR_CHTIF1 | DMA_LIFCR_CTCIF1;
+    } else if (cfg->stream == DMA2_Stream2) {
+        DMA2->LIFCR = DMA_LIFCR_CFEIF2 | DMA_LIFCR_CDMEIF2 |
+            DMA_LIFCR_CTEIF2 | DMA_LIFCR_CHTIF2 | DMA_LIFCR_CTCIF2;
     }
 }
 
-static inline void dma_init(const DMA_Config_t *cfg) {
-    transfer_callback = cfg->transfer_callback;
+static inline bool dma_get_indices(const DMA_Config_t *cfg,
+        uint32_t *dma_index, uint32_t *stream_index) {
+    if (cfg->instance == DMA1) {
+        *dma_index = 0;
+        if (cfg->stream == DMA1_Stream0) *stream_index = 0;
+        else if (cfg->stream == DMA1_Stream1) *stream_index = 1;
+        else if (cfg->stream == DMA1_Stream2) *stream_index = 2;
+        else if (cfg->stream == DMA1_Stream3) *stream_index = 3;
+        else if (cfg->stream == DMA1_Stream4) *stream_index = 4;
+        else if (cfg->stream == DMA1_Stream5) *stream_index = 5;
+        else if (cfg->stream == DMA1_Stream6) *stream_index = 6;
+        else if (cfg->stream == DMA1_Stream7) *stream_index = 7;
+        else return false;
+        return true;
+    }
+    if (cfg->instance == DMA2) {
+        *dma_index = 1;
+        if (cfg->stream == DMA2_Stream0) *stream_index = 0;
+        else if (cfg->stream == DMA2_Stream1) *stream_index = 1;
+        else if (cfg->stream == DMA2_Stream2) *stream_index = 2;
+        else if (cfg->stream == DMA2_Stream3) *stream_index = 3;
+        else if (cfg->stream == DMA2_Stream4) *stream_index = 4;
+        else if (cfg->stream == DMA2_Stream5) *stream_index = 5;
+        else if (cfg->stream == DMA2_Stream6) *stream_index = 6;
+        else if (cfg->stream == DMA2_Stream7) *stream_index = 7;
+        else return false;
+        return true;
+    }
+    return false;
+}
+
+static inline bool dma_init(const DMA_Config_t *cfg) {
+    uint32_t d, s;
+    if (!dma_get_indices(cfg, &d, &s))
+        return false;
+    dma_stream_cfg[d][s] = cfg;
     /* Enable clock for DMA */
     mcl::enableClockForDma(cfg->instance);
     /* Disable stream */
     cfg->stream->CR &= ~DMA_SxCR_EN;
     while (cfg->stream->CR & DMA_SxCR_EN);
     /* Clear pending DMA flags */
-    dma_clear_flags(cfg->stream);
+    dma_clear_flags(cfg);
     /* Reset configuration */
     cfg->stream->CR = 0;
     cfg->stream->FCR = 0;
@@ -82,6 +124,7 @@ static inline void dma_init(const DMA_Config_t *cfg) {
     cfg->stream->CR |= cfg->peripheralSize;
     /* Memory size */
     cfg->stream->CR |= cfg->memorySize;
+    return true;
 }
 
 static inline void dma_start(const DMA_Config_t *cfg) {
@@ -94,27 +137,45 @@ static inline void dma_stop(const DMA_Config_t *cfg) {
 }
 
 static inline void dma_enable_irq(const DMA_Config_t *cfg) {
+    // add to this as per use..
     if (cfg->stream == DMA2_Stream0) {
         NVIC_EnableIRQ(DMA2_Stream0_IRQn);
+    } else if (cfg->stream == DMA2_Stream1) {
+        NVIC_EnableIRQ(DMA2_Stream1_IRQn);
+    } else if (cfg->stream == DMA2_Stream2) {
+        NVIC_EnableIRQ(DMA2_Stream2_IRQn);
     }
 }
 
-extern "C" {
-    void DMA2_Stream0_IRQHandler(void) {
-        uint32_t flags = DMA2->LISR;
+extern "C" void DMA2_Stream0_IRQHandler(void) {
+    const DMA_Config_t *cfg = dma_stream_cfg[1][0];
+    if (!cfg) return;
+    uint32_t flags = cfg->instance->LISR;
+    if (cfg->transfer_callback) {
         if (flags & DMA_LISR_HTIF0) {
-            transfer_callback(1);
+            cfg->transfer_callback(1);
         }
         if (flags & DMA_LISR_TCIF0) {
-            transfer_callback(2);
+            cfg->transfer_callback(2);
         }
         if (flags & DMA_LISR_TEIF0) {
-            transfer_callback(3);
+            cfg->transfer_callback(3);
         }
-        DMA2->LIFCR = DMA_LIFCR_CFEIF0 |
-            DMA_LIFCR_CDMEIF0 | DMA_LIFCR_CTEIF0 |
-            DMA_LIFCR_CHTIF0 | DMA_LIFCR_CTCIF0;
     }
+    cfg->instance->LIFCR = DMA_LIFCR_CFEIF0 |
+        DMA_LIFCR_CDMEIF0 | DMA_LIFCR_CTEIF0 |
+        DMA_LIFCR_CHTIF0 | DMA_LIFCR_CTCIF0;
+}
+
+extern "C" void DMA2_Stream1_IRQHandler(void) {
+    const DMA_Config_t *cfg = dma_stream_cfg[1][1];
+    if (!cfg) return;
+    // todo: clear the flags
+}
+extern "C" void DMA2_Stream2_IRQHandler(void) {
+    const DMA_Config_t *cfg = dma_stream_cfg[1][2];
+    if (!cfg) return;
+    // todo: clear the flags
 }
 
 #endif
