@@ -463,6 +463,109 @@ inline void test_bldc_trapezoidal_pwm_comp() {
     timer_stop(&tm);
 }
 
+inline void init_current_sampling() {
+    // Enable clock for GPIOA (sampling pin)
+    mcl::enableClockForGpio(GPIOA);
+    // PA0 -> Analog mode
+    GPIOA->MODER &= ~(3UL << (0 * 2));
+    GPIOA->MODER |=  (3UL << (0 * 2));
+    // No pull-up/pull-down
+    GPIOA->PUPDR &= ~(3UL << (0 * 2));
+    // Enable clock for ADC peripheral
+    // to access ADC common registers
+    mcl::enableClockForAdc(ADC1);
+    adc_global_init();
+    // TIM1 CH4
+    // Internal-only PWM/compare channel.
+    // No GPIO is assigned to CH4.
+    // Center-aligned TIM1:
+    // With PWM mode 1 and rising-edge ADC trigger, the CH4 rising
+    // edge occurs on the down-count when CNT crosses CCR4.
+    // ARR-1 gives us a trigger essentially at the center of the
+    // PWM period, while avoiding the CCR4 == ARR trigger issue.
+    // ============================================================
+    TIM1->CCMR2 &= ~(TIM_CCMR2_CC4S | TIM_CCMR2_OC4M);
+    // PWM mode 1
+    TIM1->CCMR2 |= (6UL << TIM_CCMR2_OC4M_Pos);
+    // CCR4 preload
+    TIM1->CCMR2 |= TIM_CCMR2_OC4PE;
+    // Trigger essentially at the center of the
+    // center-aligned PWM cycle.
+    TIM1->CCR4 = TIM1->ARR - 1U;
+    // Enable CH4 internally.
+    // No GPIO configuration is necessary.
+    TIM1->CCER |= TIM_CCER_CC4E;
+    // ============================================================
+    // ADC1
+    // PA0 -> ADC1_IN0 -> JDR1
+    // PA1 -> ADC1_IN1 -> JDR2
+    // Two injected conversions per TIM1 CH4 trigger.
+    // ============================================================
+    constexpr uint32_t PHASE_A = ADC_CH0;
+    constexpr uint32_t PHASE_B = ADC_CH1;
+    constexpr uint32_t SAMPLE_TIME = ADC_SAMPLE_15;
+    // ------------------------------------------------------------
+    // ADC sample time
+    // ------------------------------------------------------------
+    ADC1->SMPR2 &= ~(
+        (7UL << (PHASE_A * 3U)) |
+        (7UL << (PHASE_B * 3U))
+    );
+    ADC1->SMPR2 |=
+        (SAMPLE_TIME << (PHASE_A * 3U)) |
+        (SAMPLE_TIME << (PHASE_B * 3U));
+    // ------------------------------------------------------------
+    // 12-bit, right aligned
+    // ------------------------------------------------------------
+    ADC1->CR1 &= ~(3UL << 24);
+    ADC1->CR2 &= ~ADC_CR2_ALIGN;
+    ADC1->CR1 |= ADC_CR1_SCAN;
+    // ------------------------------------------------------------
+    // Injected sequence
+    // JSQ1 = phase A
+    // JSQ2 = phase B
+    // JL = 1 => sequence contains 2 conversions.
+    // ------------------------------------------------------------
+    ADC1->JSQR = 0;
+    ADC1->JSQR |= (PHASE_A << ADC_JSQR_JSQ3_Pos);
+    ADC1->JSQR |= (PHASE_B << ADC_JSQR_JSQ4_Pos);
+    ADC1->JSQR |= ADC_JSQR_JL_0;
+    // ------------------------------------------------------------
+    // TIM1_CH4 -> injected trigger
+    // STM32F446:
+    // JEXTSEL = 0000 -> TIM1_CH4
+    // JEXTEN  = 01   -> rising edge
+    // ------------------------------------------------------------
+    ADC1->CR2 &= ~(ADC_CR2_JEXTSEL | ADC_CR2_JEXTEN);
+    // JEXTSEL = 0000 => TIM1_CH4
+    // Rising-edge trigger
+    ADC1->CR2 |= ADC_CR2_JEXTEN_0;
+    // ------------------------------------------------------------
+    // Interrupt after the injected sequence completes.
+    // This occurs after JDR1 and JDR2 have both been filled.
+    // ------------------------------------------------------------
+    ADC1->CR1 |= ADC_CR1_JEOCIE;
+    // Clear stale status.
+    ADC1->SR = 0;
+    // Enable ADC1.
+    // Do NOT use SWSTART/JSWSTART.
+    // TIM1 CH4 starts every injected sequence.
+    ADC1->CR2 |= ADC_CR2_ADON;
+    // ADC interrupt.
+    NVIC_EnableIRQ(ADC_IRQn);
+}
+
+constexpr float ADC_VREF   = 3.3f;
+constexpr float ADC_MAXCNT = 4095.0f;
+constexpr float CSA_GAIN   = 50.0f;      // V/V, INA240A2
+constexpr float R_SHUNT    = 0.010f;     // 10 mill ohms
+constexpr float V_BIAS     = 2.5f;       // bi-directional mid point confirmed by 7semi support
+
+inline float phase_a_current_amps() {
+    float v_adc = ((float)g_phase_a_adc / ADC_MAXCNT) * ADC_VREF;
+    return (v_adc - V_BIAS) / (CSA_GAIN * R_SHUNT);
+}
+
 inline void test_bldc_svpwm() {
     timer_config_t tm{};
     tm.instance = TIM1;
@@ -484,6 +587,9 @@ inline void test_bldc_svpwm() {
     timer_start_channel(&tm, 1, true);
     timer_start_channel(&tm, 2, true);
     timer_start_channel(&tm, 3, true);
+
+    // CH4 trigger + ADC1 injected sequence
+    init_current_sampling();
 
     g_svpwm.timer = &tm;
     g_svpwm.angle = 0.0f;
@@ -550,92 +656,19 @@ inline void test_bldc_svpwm() {
                     elapsed_s);
             last_ramp_update_ms = now_ms;
         }
+        // current sense
+        static uint32_t last_log_ms = 0;
+        if (g_current_sample_ready) {
+            g_current_sample_ready = false;
+            if ((uint32_t)(now_ms - last_log_ms) >= 20U) {   // ~50 Hz log rate
+                float ia = phase_a_current_amps();
+                LOG << " Ia: " << ia << ", raw(a): " << g_phase_a_adc
+                    << ", raw(b): " << g_phase_b_adc;
+                last_log_ms = now_ms;
+            }
+        }
     }
     timer_stop(&tm);
-}
-
-static inline void test_svpwm_init_current_sampling() {
-    // TIM1 CH4
-    // Internal-only PWM/compare channel.
-    // No GPIO is assigned to CH4.
-    // Center-aligned TIM1:
-    // With PWM mode 1 and rising-edge ADC trigger, the CH4 rising
-    // edge occurs on the down-count when CNT crosses CCR4.
-    // ARR-1 gives us a trigger essentially at the center of the
-    // PWM period, while avoiding the CCR4 == ARR trigger issue.
-    // ============================================================
-    TIM1->CCMR2 &= ~(TIM_CCMR2_CC4S | TIM_CCMR2_OC4M);
-    // PWM mode 1
-    TIM1->CCMR2 |= (6UL << TIM_CCMR2_OC4M_Pos);
-    // CCR4 preload
-    TIM1->CCMR2 |= TIM_CCMR2_OC4PE;
-    // Trigger essentially at the center of the
-    // center-aligned PWM cycle.
-    TIM1->CCR4 = TIM1->ARR - 1U;
-    // Enable CH4 internally.
-    // No GPIO configuration is necessary.
-    TIM1->CCER |= TIM_CCER_CC4E;
-    // ============================================================
-    // ADC1
-    // PA1 -> ADC1_IN1 -> JDR1
-    // PA2 -> ADC1_IN2 -> JDR2
-    // Two injected conversions per TIM1 CH4 trigger.
-    // ============================================================
-    constexpr uint32_t PHASE_A = ADC_CH1;
-    constexpr uint32_t PHASE_B = ADC_CH2;
-    constexpr uint32_t SAMPLE_TIME = ADC_SAMPLE_15;
-    // ------------------------------------------------------------
-    // ADC sample time
-    // ------------------------------------------------------------
-    ADC1->SMPR2 &= ~(
-        (7UL << (PHASE_A * 3U)) |
-        (7UL << (PHASE_B * 3U))
-    );
-    ADC1->SMPR2 |=
-        (SAMPLE_TIME << (PHASE_A * 3U)) |
-        (SAMPLE_TIME << (PHASE_B * 3U));
-    // ------------------------------------------------------------
-    // 12-bit, right aligned
-    // ------------------------------------------------------------
-    ADC1->CR1 &= ~(3UL << 24);
-    ADC1->CR2 &= ~ADC_CR2_ALIGN;
-    // ------------------------------------------------------------
-    // Injected sequence
-    // JSQ1 = phase A
-    // JSQ2 = phase B
-    // JL = 1 => sequence contains 2 conversions.
-    // ------------------------------------------------------------
-    ADC1->JSQR = 0;
-    ADC1->JSQR |= (PHASE_A << ADC_JSQR_JSQ1_Pos);
-    ADC1->JSQR |= (PHASE_B << ADC_JSQR_JSQ2_Pos);
-    ADC1->JSQR |= ADC_JSQR_JL_0;
-    // ------------------------------------------------------------
-    // TIM1_CH4 -> injected trigger
-    // STM32F446:
-    // JEXTSEL = 0000 -> TIM1_CH4
-    // JEXTEN  = 01   -> rising edge
-    // ------------------------------------------------------------
-    ADC1->CR2 &= ~(ADC_CR2_JEXTSEL | ADC_CR2_JEXTEN);
-    // JEXTSEL = 0000 => TIM1_CH4
-    // Rising-edge trigger
-    ADC1->CR2 |= ADC_CR2_JEXTEN_0;
-    // ------------------------------------------------------------
-    // Interrupt after the injected sequence completes.
-    // This occurs after JDR1 and JDR2 have both been filled.
-    // ------------------------------------------------------------
-    ADC1->CR1 |= ADC_CR1_JEOCIE;
-    // Clear stale status.
-    ADC1->SR = 0;
-    // Enable ADC1.
-    // Do NOT use SWSTART/JSWSTART.
-    // TIM1 CH4 starts every injected sequence.
-    ADC1->CR2 |= ADC_CR2_ADON;
-    // ADC interrupt.
-    NVIC_EnableIRQ(ADC_IRQn);
-}
-
-static inline void test_bldc_foc() {
-
 }
 
 #elif defined (PICO)

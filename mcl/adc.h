@@ -190,11 +190,15 @@ static inline uint16_t adc_software_read(const ADC_Config_t *cfg) {
     return (uint16_t)cfg->_instance->DR;
 }
 
+extern "C" {
 volatile uint16_t g_phase_a_adc = 0;
 volatile uint16_t g_phase_b_adc = 0;
 volatile bool g_current_sample_ready = false;
+volatile uint32_t g_isr_hit_count = 0;
+}
 
 extern "C" void ADC_IRQHandler(void) {
+    ++g_isr_hit_count;
     // Injected conversion complete.
     // JDR1 = phase A
     // JDR2 = phase B
