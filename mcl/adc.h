@@ -190,12 +190,24 @@ static inline uint16_t adc_software_read(const ADC_Config_t *cfg) {
     return (uint16_t)cfg->_instance->DR;
 }
 
-extern "C" {
-    void ADC_IRQHandler(void) {
-        if (ADC1->SR & ADC_SR_OVR) {
-            ADC1->SR &= ~ADC_SR_OVR;
-            adc_interrupt_callback(0);
-        }
+volatile uint16_t g_phase_a_adc = 0;
+volatile uint16_t g_phase_b_adc = 0;
+volatile bool g_current_sample_ready = false;
+
+extern "C" void ADC_IRQHandler(void) {
+    // Injected conversion complete.
+    // JDR1 = phase A
+    // JDR2 = phase B
+    if (ADC1->SR & ADC_SR_JEOC) {
+        g_phase_a_adc = (uint16_t)ADC1->JDR1;
+        g_phase_b_adc = (uint16_t)ADC1->JDR2;
+        g_current_sample_ready = true;
+        ADC1->SR &= ~ADC_SR_JEOC;
+    }
+    // Existing regular ADC overrun handling.
+    if (ADC1->SR & ADC_SR_OVR) {
+        ADC1->SR &= ~ADC_SR_OVR;
+        adc_interrupt_callback(0);
     }
 }
 

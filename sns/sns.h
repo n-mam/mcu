@@ -235,7 +235,6 @@ extern "C" {
 }
 
 inline void adc_tim_dma_test() {
-    #if defined(STM32F4) || defined(STM32F7)
     // Enable clock for GPIOA (sampling pin)
     mcl::enableClockForGpio(GPIOA);
     // PA0 -> Analog mode
@@ -317,7 +316,10 @@ inline void adc_tim_dma_test() {
             }
         }
     }
-    #endif
 }
+
+#if defined (PICO)
+inline void adc_tim_dma_test() {}
+#endif
 
 #endif

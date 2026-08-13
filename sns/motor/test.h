@@ -554,10 +554,95 @@ inline void test_bldc_svpwm() {
     timer_stop(&tm);
 }
 
+static inline void test_svpwm_init_current_sampling() {
+    // TIM1 CH4
+    // Internal-only PWM/compare channel.
+    // No GPIO is assigned to CH4.
+    // Center-aligned TIM1:
+    // With PWM mode 1 and rising-edge ADC trigger, the CH4 rising
+    // edge occurs on the down-count when CNT crosses CCR4.
+    // ARR-1 gives us a trigger essentially at the center of the
+    // PWM period, while avoiding the CCR4 == ARR trigger issue.
+    // ============================================================
+    TIM1->CCMR2 &= ~(TIM_CCMR2_CC4S | TIM_CCMR2_OC4M);
+    // PWM mode 1
+    TIM1->CCMR2 |= (6UL << TIM_CCMR2_OC4M_Pos);
+    // CCR4 preload
+    TIM1->CCMR2 |= TIM_CCMR2_OC4PE;
+    // Trigger essentially at the center of the
+    // center-aligned PWM cycle.
+    TIM1->CCR4 = TIM1->ARR - 1U;
+    // Enable CH4 internally.
+    // No GPIO configuration is necessary.
+    TIM1->CCER |= TIM_CCER_CC4E;
+    // ============================================================
+    // ADC1
+    // PA1 -> ADC1_IN1 -> JDR1
+    // PA2 -> ADC1_IN2 -> JDR2
+    // Two injected conversions per TIM1 CH4 trigger.
+    // ============================================================
+    constexpr uint32_t PHASE_A = ADC_CH1;
+    constexpr uint32_t PHASE_B = ADC_CH2;
+    constexpr uint32_t SAMPLE_TIME = ADC_SAMPLE_15;
+    // ------------------------------------------------------------
+    // ADC sample time
+    // ------------------------------------------------------------
+    ADC1->SMPR2 &= ~(
+        (7UL << (PHASE_A * 3U)) |
+        (7UL << (PHASE_B * 3U))
+    );
+    ADC1->SMPR2 |=
+        (SAMPLE_TIME << (PHASE_A * 3U)) |
+        (SAMPLE_TIME << (PHASE_B * 3U));
+    // ------------------------------------------------------------
+    // 12-bit, right aligned
+    // ------------------------------------------------------------
+    ADC1->CR1 &= ~(3UL << 24);
+    ADC1->CR2 &= ~ADC_CR2_ALIGN;
+    // ------------------------------------------------------------
+    // Injected sequence
+    // JSQ1 = phase A
+    // JSQ2 = phase B
+    // JL = 1 => sequence contains 2 conversions.
+    // ------------------------------------------------------------
+    ADC1->JSQR = 0;
+    ADC1->JSQR |= (PHASE_A << ADC_JSQR_JSQ1_Pos);
+    ADC1->JSQR |= (PHASE_B << ADC_JSQR_JSQ2_Pos);
+    ADC1->JSQR |= ADC_JSQR_JL_0;
+    // ------------------------------------------------------------
+    // TIM1_CH4 -> injected trigger
+    // STM32F446:
+    // JEXTSEL = 0000 -> TIM1_CH4
+    // JEXTEN  = 01   -> rising edge
+    // ------------------------------------------------------------
+    ADC1->CR2 &= ~(ADC_CR2_JEXTSEL | ADC_CR2_JEXTEN);
+    // JEXTSEL = 0000 => TIM1_CH4
+    // Rising-edge trigger
+    ADC1->CR2 |= ADC_CR2_JEXTEN_0;
+    // ------------------------------------------------------------
+    // Interrupt after the injected sequence completes.
+    // This occurs after JDR1 and JDR2 have both been filled.
+    // ------------------------------------------------------------
+    ADC1->CR1 |= ADC_CR1_JEOCIE;
+    // Clear stale status.
+    ADC1->SR = 0;
+    // Enable ADC1.
+    // Do NOT use SWSTART/JSWSTART.
+    // TIM1 CH4 starts every injected sequence.
+    ADC1->CR2 |= ADC_CR2_ADON;
+    // ADC interrupt.
+    NVIC_EnableIRQ(ADC_IRQn);
+}
+
+static inline void test_bldc_foc() {
+
+}
+
 #elif defined (PICO)
 void test_bldc_trapezoidal_ll() {}
 void test_bldc_sinusoidal_wave() {}
 void test_bldc_trapezoidal_pwm() {}
 void test_bldc_trapezoidal_pwm_comp() {}
 void test_svpwm() {}
+void test_bldc_foc() {}
 #endif
