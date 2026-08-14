@@ -550,6 +550,39 @@ inline void init_current_sampling() {
     NVIC_EnableIRQ(ADC_IRQn);
 }
 
+struct phase_currents_t {
+    float ia, ib, ic;      // phase currents
+    float alpha, beta;     // stationary frame
+    float d, q;            // rotating frame
+};
+
+inline void clarke_transform(phase_currents_t &pc) {
+    constexpr float ONE_THIRD = 1.0f / 3.0f;
+    constexpr float SQRT3 = 1.73205080757f;
+    // amplitude-invariant Clarke transformation
+    // uses all 3 measured/reconstructed phases
+    pc.alpha = (2.0f * pc.ia - pc.ib - pc.ic) * ONE_THIRD;
+    pc.beta  = (pc.ib - pc.ic) * (1.0f / SQRT3);
+}
+
+inline void park_transform(phase_currents_t &pc, float theta) {
+    float c = cosf(theta);
+    float s = sinf(theta);
+    pc.d =  pc.alpha * c + pc.beta * s;
+    pc.q = -pc.alpha * s + pc.beta * c;
+}
+
+inline phase_currents_t compute_dq_currents(uint16_t raw_a, uint16_t raw_b,
+        float bias_a, float bias_b, float theta) {
+    phase_currents_t pc{};
+    pc.ia = adc_to_phase_amps(raw_a, bias_a);
+    pc.ib = adc_to_phase_amps(raw_b, bias_b);
+    pc.ic = -(pc.ia + pc.ib);
+    clarke_transform(pc);
+    park_transform(pc, theta);
+    return pc;
+}
+
 inline void test_bldc_svpwm() {
     timer_config_t tm{};
     tm.instance = TIM1;
@@ -642,11 +675,12 @@ inline void test_bldc_svpwm() {
             g_current.ready = false;
             // ~100 Hz log rate
             if ((uint32_t)(now_ms - last_log_ms) >= 10U) {
-                // 2.5 Bi-directional mid point confirmed by 7semi support
-                float ia = adc_to_phase_amps(g_current.raw_phase_a, g_current.bias_a);
-                float ib = adc_to_phase_amps(g_current.raw_phase_b, g_current.bias_b);
-                LOG << " Ia: " << ia /* << ", raw(a): " << g_current.raw_phase_a */
-                        << ", Ib: " << ib; /* << ", raw(b): " << g_current.raw_phase_b; */
+                // 2.5V Bi-directional mid point confirmed by 7semi support
+                phase_currents_t pc = compute_dq_currents(
+                    g_current.raw_phase_a, g_current.raw_phase_b,
+                        g_current.bias_a, g_current.bias_b, g_svpwm.angle);
+                LOG << " Ia: " << pc.ia << ", Ib: " << pc.ib
+                        << ", Ic: " << pc.ic << ", Id: " << pc.d << ", Iq: " << pc.q;
                 last_log_ms = now_ms;
             }
         }
