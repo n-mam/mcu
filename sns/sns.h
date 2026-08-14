@@ -235,13 +235,9 @@ extern "C" {
 }
 
 inline void adc_tim_dma_test() {
-    // Enable clock for GPIOA (sampling pin)
-    mcl::enableClockForGpio(GPIOA);
-    // PA0 -> Analog mode
-    GPIOA->MODER &= ~(3UL << (0 * 2));
-    GPIOA->MODER |=  (3UL << (0 * 2));
-    // No pull-up/pull-down
-    GPIOA->PUPDR &= ~(3UL << (0 * 2));
+    // Enable GPIOA clock and
+    // configure PA0 to analog
+    adc_gpio_init(GPIOA, {0});
     // ADC configuration
     ADC_Config_t adc = {
         ADC1,                 // instance
@@ -257,6 +253,7 @@ inline void adc_tim_dma_test() {
     mcl::enableClockForAdc(ADC1);
     adc_global_init();
     adc_init(&adc);
+
     // DMA configurtion
     DMA_Config_t dma = {};
     dma.channel = 0;
@@ -272,21 +269,23 @@ inline void adc_tim_dma_test() {
     dma.direction = DMA_DIR_PER_TO_MEM;
     dma.transfer_callback = dma_callback;
     dma.peripheralSize = DMA_SxCR_PSIZE_0;
-
     dma_init(&dma);
     dma_enable_irq(&dma);
+
     // Timer config
     timer_config_t tim{};
     tim.instance = TIM2;
     timer_init(&tim);
     timer_set_frequency(&tim, 1000);
     timer_enable_trgo(&tim);
+
     // start DMA
     dma_start(&dma);
     // enable ADC
     adc_enable(&adc);
     // start timer trigger source last
     timer_start(&tim);
+
     while(true) {
         // LOG << " half=" << dma_half_count
         //     << " full=" << dma_full_count

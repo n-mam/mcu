@@ -1,6 +1,7 @@
 #ifndef ADC_H
 #define ADC_H
 
+#include <vector>
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -112,6 +113,18 @@ static inline void adc_global_init() {
     ADC->CCR |=  (1UL << 16);
 }
 
+static inline void adc_gpio_init(GPIO_TypeDef *GPIOx, const std::vector<uint8_t>& pins) {
+    mcl::enableClockForGpio(GPIOx);
+    for (size_t i = 0; i < pins.size(); ++i) {
+        uint32_t shift = static_cast<uint32_t>(pins[i]) * 2U;
+        // Analog mode
+        GPIOx->MODER &= ~(3UL << shift);
+        GPIOx->MODER |=  (3UL << shift);
+        // No pull-up / pull-down
+        GPIOx->PUPDR &= ~(3UL << shift);
+    }
+}
+
 static inline void adc_init(const ADC_Config_t *cfg) {
     // ADC off
     cfg->_instance->CR2 = 0;
@@ -190,22 +203,26 @@ static inline uint16_t adc_software_read(const ADC_Config_t *cfg) {
     return (uint16_t)cfg->_instance->DR;
 }
 
-extern "C" {
-volatile uint16_t g_phase_a_adc = 0;
-volatile uint16_t g_phase_b_adc = 0;
-volatile bool g_current_sample_ready = false;
-volatile uint32_t g_isr_hit_count = 0;
-}
+struct current_sense_t {
+    volatile uint16_t raw_phase_a = 0;
+    volatile uint16_t raw_phase_b = 0;
+    volatile bool ready = false;
+    volatile uint32_t isr_hits = 0;
+    float bias_a = 2.5f;     // runtime calibrated bias
+    float bias_b = 2.5f;
+};
+
+current_sense_t g_current;
 
 extern "C" void ADC_IRQHandler(void) {
-    ++g_isr_hit_count;
+    ++(g_current.isr_hits);
     // Injected conversion complete.
     // JDR1 = phase A
     // JDR2 = phase B
     if (ADC1->SR & ADC_SR_JEOC) {
-        g_phase_a_adc = (uint16_t)ADC1->JDR1;
-        g_phase_b_adc = (uint16_t)ADC1->JDR2;
-        g_current_sample_ready = true;
+        g_current.raw_phase_a = (uint16_t)ADC1->JDR1;
+        g_current.raw_phase_b = (uint16_t)ADC1->JDR2;
+        g_current.ready = true;
         ADC1->SR &= ~ADC_SR_JEOC;
     }
     // Existing regular ADC overrun handling.

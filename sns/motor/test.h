@@ -463,14 +463,22 @@ inline void test_bldc_trapezoidal_pwm_comp() {
     timer_stop(&tm);
 }
 
+extern current_sense_t g_current;
+
+constexpr float ADC_VREF   = 3.3f;
+constexpr float ADC_MAXCNT = 4095.0f;
+constexpr float CSA_GAIN   = 50.0f;      // V/V, INA240A2
+constexpr float R_SHUNT    = 0.010f;     // 10 mill ohms
+
+inline float adc_to_phase_amps(uint16_t raw, float v_bias) {
+    float v_adc = ((float)raw / ADC_MAXCNT) * ADC_VREF;
+    return (v_adc - v_bias) / (CSA_GAIN * R_SHUNT);
+}
+
 inline void init_current_sampling() {
-    // Enable clock for GPIOA (sampling pin)
-    mcl::enableClockForGpio(GPIOA);
-    // PA0 -> Analog mode
-    GPIOA->MODER &= ~(3UL << (0 * 2));
-    GPIOA->MODER |=  (3UL << (0 * 2));
-    // No pull-up/pull-down
-    GPIOA->PUPDR &= ~(3UL << (0 * 2));
+    // Enable GPIOA clock and
+    // configure PA0 and PA1 to analog
+    adc_gpio_init(GPIOA, {0, 1});
     // Enable clock for ADC peripheral
     // to access ADC common registers
     mcl::enableClockForAdc(ADC1);
@@ -483,7 +491,6 @@ inline void init_current_sampling() {
     // edge occurs on the down-count when CNT crosses CCR4.
     // ARR-1 gives us a trigger essentially at the center of the
     // PWM period, while avoiding the CCR4 == ARR trigger issue.
-    // ============================================================
     TIM1->CCMR2 &= ~(TIM_CCMR2_CC4S | TIM_CCMR2_OC4M);
     // PWM mode 1
     TIM1->CCMR2 |= (6UL << TIM_CCMR2_OC4M_Pos);
@@ -495,18 +502,14 @@ inline void init_current_sampling() {
     // Enable CH4 internally.
     // No GPIO configuration is necessary.
     TIM1->CCER |= TIM_CCER_CC4E;
-    // ============================================================
     // ADC1
     // PA0 -> ADC1_IN0 -> JDR1
     // PA1 -> ADC1_IN1 -> JDR2
     // Two injected conversions per TIM1 CH4 trigger.
-    // ============================================================
     constexpr uint32_t PHASE_A = ADC_CH0;
     constexpr uint32_t PHASE_B = ADC_CH1;
-    constexpr uint32_t SAMPLE_TIME = ADC_SAMPLE_15;
-    // ------------------------------------------------------------
+    constexpr uint32_t SAMPLE_TIME = ADC_SAMPLE_84;
     // ADC sample time
-    // ------------------------------------------------------------
     ADC1->SMPR2 &= ~(
         (7UL << (PHASE_A * 3U)) |
         (7UL << (PHASE_B * 3U))
@@ -514,36 +517,28 @@ inline void init_current_sampling() {
     ADC1->SMPR2 |=
         (SAMPLE_TIME << (PHASE_A * 3U)) |
         (SAMPLE_TIME << (PHASE_B * 3U));
-    // ------------------------------------------------------------
     // 12-bit, right aligned
-    // ------------------------------------------------------------
     ADC1->CR1 &= ~(3UL << 24);
     ADC1->CR2 &= ~ADC_CR2_ALIGN;
     ADC1->CR1 |= ADC_CR1_SCAN;
-    // ------------------------------------------------------------
     // Injected sequence
     // JSQ1 = phase A
     // JSQ2 = phase B
     // JL = 1 => sequence contains 2 conversions.
-    // ------------------------------------------------------------
     ADC1->JSQR = 0;
     ADC1->JSQR |= (PHASE_A << ADC_JSQR_JSQ3_Pos);
     ADC1->JSQR |= (PHASE_B << ADC_JSQR_JSQ4_Pos);
     ADC1->JSQR |= ADC_JSQR_JL_0;
-    // ------------------------------------------------------------
     // TIM1_CH4 -> injected trigger
     // STM32F446:
     // JEXTSEL = 0000 -> TIM1_CH4
     // JEXTEN  = 01   -> rising edge
-    // ------------------------------------------------------------
     ADC1->CR2 &= ~(ADC_CR2_JEXTSEL | ADC_CR2_JEXTEN);
     // JEXTSEL = 0000 => TIM1_CH4
     // Rising-edge trigger
     ADC1->CR2 |= ADC_CR2_JEXTEN_0;
-    // ------------------------------------------------------------
     // Interrupt after the injected sequence completes.
     // This occurs after JDR1 and JDR2 have both been filled.
-    // ------------------------------------------------------------
     ADC1->CR1 |= ADC_CR1_JEOCIE;
     // Clear stale status.
     ADC1->SR = 0;
@@ -553,17 +548,6 @@ inline void init_current_sampling() {
     ADC1->CR2 |= ADC_CR2_ADON;
     // ADC interrupt.
     NVIC_EnableIRQ(ADC_IRQn);
-}
-
-constexpr float ADC_VREF   = 3.3f;
-constexpr float ADC_MAXCNT = 4095.0f;
-constexpr float CSA_GAIN   = 50.0f;      // V/V, INA240A2
-constexpr float R_SHUNT    = 0.010f;     // 10 mill ohms
-constexpr float V_BIAS     = 2.5f;       // bi-directional mid point confirmed by 7semi support
-
-inline float phase_a_current_amps() {
-    float v_adc = ((float)g_phase_a_adc / ADC_MAXCNT) * ADC_VREF;
-    return (v_adc - V_BIAS) / (CSA_GAIN * R_SHUNT);
 }
 
 inline void test_bldc_svpwm() {
@@ -610,8 +594,8 @@ inline void test_bldc_svpwm() {
     // Electrical frequency: (all off 5V Vbus)
     // 5 Hz -> 35 Hz electrical (hard disk motor)
     // 2 Hz -> 3 Hz electrcal (2804 3-Phase gimbal dfrobot)
-    ramp.ef_start = 2.0f;
-    ramp.ef_end   = 3.0f; //ok:7, notok:40
+    ramp.ef_start = 1.0f;
+    ramp.ef_end   = 2.0f; //ok:7, notok:40
     // Trapezoidal fields are unused here.
     ramp.trap_duty_start = 0.0f;
     ramp.trap_duty_end   = 0.0f;
@@ -629,10 +613,6 @@ inline void test_bldc_svpwm() {
 
     while (!getInstance<config>()->shouldExit()) {
         // TIM1 update interrupt and SysTick can wake the processor.
-        // TIM1 ISR:
-        //     svpwm_update(&g_svpwm);
-        // SysTick:
-        //     advances mcl::time_ms()
         __WFI();
         uint32_t now_ms = mcl::time_ms();
         // The ramp itself is very slow compared with the 20 kHz
@@ -656,14 +636,17 @@ inline void test_bldc_svpwm() {
                     elapsed_s);
             last_ramp_update_ms = now_ms;
         }
-        // current sense
+        // current sense logging
         static uint32_t last_log_ms = 0;
-        if (g_current_sample_ready) {
-            g_current_sample_ready = false;
-            if ((uint32_t)(now_ms - last_log_ms) >= 20U) {   // ~50 Hz log rate
-                float ia = phase_a_current_amps();
-                LOG << " Ia: " << ia << ", raw(a): " << g_phase_a_adc
-                    << ", raw(b): " << g_phase_b_adc;
+        if (g_current.ready) {
+            g_current.ready = false;
+            // ~100 Hz log rate
+            if ((uint32_t)(now_ms - last_log_ms) >= 10U) {
+                // 2.5 Bi-directional mid point confirmed by 7semi support
+                float ia = adc_to_phase_amps(g_current.raw_phase_a, g_current.bias_a);
+                float ib = adc_to_phase_amps(g_current.raw_phase_b, g_current.bias_b);
+                LOG << " Ia: " << ia /* << ", raw(a): " << g_current.raw_phase_a */
+                        << ", Ib: " << ib; /* << ", raw(b): " << g_current.raw_phase_b; */
                 last_log_ms = now_ms;
             }
         }
