@@ -277,7 +277,7 @@ static inline void timer_sinusoidal_next_step(timer_config_t *cfg, uint8_t ch) {
 // T1 = √3 m sin(60°−α)
 // T2 = √3 m sin(α)
 // T0 = 1−T1−T2
-static inline void svpwm_update(svpwm_t *svp) {
+inline void svpwm_update(svpwm_t *svp) {
     constexpr float PI = 3.14159265359f;
     constexpr float PI3 = PI / 3.0f;
     constexpr float SQRT3 = 1.73205080757f;
@@ -343,26 +343,27 @@ static inline void svpwm_update(svpwm_t *svp) {
     }
 }
 
-extern "C"
-    void TIM2_IRQHandler(void) {
-        if (TIM2->SR & TIM_SR_UIF) {
-            // Clear interrupt flag
-            TIM2->SR &= ~TIM_SR_UIF;
-            if (timer2_cfg) {
-                timer_sinusoidal_next_step(timer2_cfg, 1);
-                timer_sinusoidal_next_step(timer2_cfg, 2);
-                timer_sinusoidal_next_step(timer2_cfg, 3);
-            }
+extern "C" void TIM2_IRQHandler(void) {
+    if (TIM2->SR & TIM_SR_UIF) {
+        // Clear interrupt flag
+        TIM2->SR &= ~TIM_SR_UIF;
+        if (timer2_cfg) {
+            timer_sinusoidal_next_step(timer2_cfg, 1);
+            timer_sinusoidal_next_step(timer2_cfg, 2);
+            timer_sinusoidal_next_step(timer2_cfg, 3);
         }
     }
+}
 
-extern "C"
-    void TIM1_UP_TIM10_IRQHandler(void) {
-        if(TIM1->SR & TIM_SR_UIF) {
-            TIM1->SR &= ~TIM_SR_UIF;
+extern volatile bool encoder_calibration_hold;
+
+extern "C" void TIM1_UP_TIM10_IRQHandler(void) {
+    if(TIM1->SR & TIM_SR_UIF) {
+        TIM1->SR &= ~TIM_SR_UIF;
+        if (!encoder_calibration_hold)
             svpwm_update(&g_svpwm);
-        }
     }
+}
 
 inline void tim_test() {
     // RCC->APB1ENR |= RCC_APB1ENR_TIM2EN;

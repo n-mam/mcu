@@ -583,6 +583,25 @@ inline phase_currents_t compute_dq_currents(uint16_t raw_a, uint16_t raw_b,
     return pc;
 }
 
+constexpr uint32_t ENCODER_COUNTS = 4096;
+constexpr uint32_t POLE_PAIRS = 7;          // DFRobot 2804, 12N/14P
+constexpr float TWO_PI = 6.28318530718f;
+volatile bool encoder_calibration_hold = true;
+
+inline uint16_t as5600_read_raw_angle(serial::i2c &bus) {
+    //todo:: 4 byte read because of 2-byte read bug
+    uint8_t buf[4] = {0};
+    bus.read(0x36, 0x0C, buf, 4);
+    return ((uint16_t)(buf[0] & 0x0F) << 8) | buf[1];
+}
+
+inline float encoder_to_electrical_angle(uint16_t raw, float zero_offset) {
+    int32_t delta = (int32_t)raw - (int32_t)zero_offset;
+    delta = ((delta % (int32_t)ENCODER_COUNTS) + (int32_t)ENCODER_COUNTS) % (int32_t)ENCODER_COUNTS;
+    float mech_frac = (float)delta / (float)ENCODER_COUNTS;
+    return fmodf(mech_frac * TWO_PI * POLE_PAIRS, TWO_PI);
+}
+
 inline void test_bldc_svpwm() {
     timer_config_t tm{};
     tm.instance = TIM1;
@@ -638,11 +657,37 @@ inline void test_bldc_svpwm() {
     g_svpwm.modulation = ramp.m_start;
     g_svpwm.electrical_frequency = ramp.ef_start;
 
+    encoder_calibration_hold = true;
     timer_enable_interrupt(&tm);
+    timer_start(&tm);
+    // encoder offset calibration
+    serial::i2c bus(3, 10, 400'000, I2C2, GPIOB);
+    svpwm_t svpwm;
+    svpwm.timer = &tm;
+    svpwm.angle = 0.0f;
+    svpwm.modulation = 0.15f;
+    svpwm.electrical_frequency = 0.0f;
+    svpwm.svpwm_update_frequency = 20'000.0f;
+    svpwm_update(&svpwm);
+    // wait for rotor to snap to zero(electrical)
+    // take average of 50 samples
+    mcl::sleep_ms(500);
+    float encoder_zero_offset = 0;
+    for (int i = 0; i < 50; i++) {
+        float raw = (float)as5600_read_raw_angle(bus);
+        LOG << " encoder_zero_offset: " << raw;
+        encoder_zero_offset += raw;
+        mcl::sleep_ms(2);
+    }
+    encoder_zero_offset /= 50.0f;
+    encoder_calibration_hold = false;
+    LOG << " encoder_zero_offset: " << encoder_zero_offset;
 
     const uint32_t ramp_start_ms = mcl::time_ms();
-    timer_start(&tm);
     uint32_t last_ramp_update_ms = ramp_start_ms;
+
+    float g_theta_measured = 0.0f;
+    static uint32_t last_encoder_ms = 0;
 
     while (!getInstance<config>()->shouldExit()) {
         // TIM1 update interrupt and SysTick can wake the processor.
@@ -669,6 +714,13 @@ inline void test_bldc_svpwm() {
                     elapsed_s);
             last_ramp_update_ms = now_ms;
         }
+
+        if ((uint32_t)(now_ms - last_encoder_ms) >= 2U) {
+            uint16_t raw = as5600_read_raw_angle(bus);
+            g_theta_measured = encoder_to_electrical_angle(raw, encoder_zero_offset);
+            last_encoder_ms = now_ms;
+        }
+
         // current sense logging
         static uint32_t last_log_ms = 0;
         if (g_current.ready) {
@@ -678,9 +730,10 @@ inline void test_bldc_svpwm() {
                 // 2.5V Bi-directional mid point confirmed by 7semi support
                 phase_currents_t pc = compute_dq_currents(
                     g_current.raw_phase_a, g_current.raw_phase_b,
-                        g_current.bias_a, g_current.bias_b, g_svpwm.angle);
+                        g_current.bias_a, g_current.bias_b, g_theta_measured/*g_svpwm.angle*/);
                 LOG << " Ia: " << pc.ia << ", Ib: " << pc.ib
-                        << ", Ic: " << pc.ic << ", Id: " << pc.d << ", Iq: " << pc.q;
+                        << ", Ic: " << pc.ic << ", Id: " << pc.d << ", Iq: "
+                            << pc.q << ", theta: " << g_theta_measured;
                 last_log_ms = now_ms;
             }
         }
