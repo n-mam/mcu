@@ -18,6 +18,18 @@ typedef struct {
 // center aligned mode setting
 enum cms { ea, ca1, ca2, ca3 };
 
+typedef enum {
+    TIMER_EVENT_CC1,
+    TIMER_EVENT_CC2,
+    TIMER_EVENT_CC3,
+    TIMER_EVENT_CC4,
+    TIMER_EVENT_BREAK,
+    TIMER_EVENT_UPDATE,
+    TIMER_EVENT_TRIGGER,
+} timer_event_t;
+
+typedef void (*timer_interrupt_callback_t)(timer_event_t);
+
 typedef struct {
     cms mode;
     float *lut;
@@ -26,19 +38,31 @@ typedef struct {
     uint32_t frequency;
     TIM_TypeDef *instance;
     timer_channel_t channel[5];
+    timer_interrupt_callback_t interrupt_callback;
 } timer_config_t;
 
-typedef struct {
-    timer_config_t *timer;
-    float angle;                    // current electrical angle (rad)
-    float modulation;               // 0..0.866
-    float electrical_frequency;     // electrical field speed (Hz)
-    float svpwm_update_frequency;
-} svpwm_t;
+inline const timer_config_t *timer_cfg_table[5] = {nullptr};
 
-static svpwm_t g_svpwm;
+static inline int timer_get_index(const timer_config_t *cfg) {
+    if (cfg->instance == TIM1)
+        return 0;
+    if (cfg->instance == TIM2)
+        return 1;
+    if (cfg->instance == TIM3)
+        return 2;
+    if (cfg->instance == TIM4)
+        return 3;
+    if (cfg->instance == TIM5)
+        return 4;
+    return -1;
+}
 
-static timer_config_t *timer2_cfg = NULL;
+static inline bool timer_set_config(const timer_config_t *cfg) {
+    int index = timer_get_index(cfg);
+    if (index < 0) return false;
+    timer_cfg_table[index] = cfg;
+    return true;
+}
 
 static inline bool timer_is_advanced(const timer_config_t *cfg) {
     return (cfg->instance == TIM1);
@@ -50,6 +74,7 @@ static inline uint32_t timer_clock(const timer_config_t *cfg) {
 }
 
 static inline void timer_init(const timer_config_t *cfg) {
+    if (!timer_set_config(cfg)) return;
     mcl::enableClockForTimer(cfg->instance);
     cfg->instance->PSC = (timer_clock(cfg) / 1000000U) - 1U;
     cfg->instance->CR1 = TIM_CR1_ARPE;
@@ -273,95 +298,33 @@ static inline void timer_sinusoidal_next_step(timer_config_t *cfg, uint8_t ch) {
         *step = 0;
 }
 
-// standard symmetric SVPWM dwell-time equations
-// T1 = √3 m sin(60°−α)
-// T2 = √3 m sin(α)
-// T0 = 1−T1−T2
-inline void svpwm_update(svpwm_t *svp) {
-    constexpr float PI = 3.14159265359f;
-    constexpr float PI3 = PI / 3.0f;
-    constexpr float SQRT3 = 1.73205080757f;
-    float theta = svp->angle;
-    int sector = (int)(theta / PI3) % 6;
-    float alpha = theta - sector * PI3;
-    float m = svp->modulation;
-    //-------------------------------------
-    // normalized switching times
-    //-------------------------------------
-    float T1 = SQRT3 * m * sinf(PI3 - alpha);
-    float T2 = SQRT3 * m * sinf(alpha);
-    // this is redundant if we gurantee that
-    // the modulation would be inside the linear
-    // range which is 1/sqrt(3) of Vbus
-    if(T1 + T2 > 1.0f) {
-        float s = 1.0f / (T1 + T2);
-        T1 *= s;
-        T2 *= s;
-    }
-    float T0 = 1.0f - T1 - T2;
-    float Ta = 0.0f, Tb = 0.0f, Tc = 0.0f;
-    switch(sector) {
-        case 0:
-            Ta = T1 + T2 + T0*0.5f;
-            Tb = T2 + T0*0.5f;
-            Tc = T0*0.5f;
-            break;
-        case 1:
-            Ta = T1 + T0*0.5f;
-            Tb = T1 + T2 + T0*0.5f;
-            Tc = T0*0.5f;
-            break;
-        case 2:
-            Ta = T0*0.5f;
-            Tb = T1 + T2 + T0*0.5f;
-            Tc = T2 + T0*0.5f;
-            break;
-        case 3:
-            Ta = T0*0.5f;
-            Tb = T1 + T0*0.5f;
-            Tc = T1 + T2 + T0*0.5f;
-            break;
-        case 4:
-            Ta = T2 + T0*0.5f;
-            Tb = T0*0.5f;
-            Tc = T1 + T2 + T0*0.5f;
-            break;
-        case 5:
-            Ta = T1 + T2 + T0*0.5f;
-            Tb = T0*0.5f;
-            Tc = T1 + T0*0.5f;
-            break;
-    }
-    uint32_t arr = svp->timer->arr + 1;
-    svp->timer->instance->CCR1 = (uint32_t)(Ta * arr);
-    svp->timer->instance->CCR2 = (uint32_t)(Tb * arr);
-    svp->timer->instance->CCR3 = (uint32_t)(Tc * arr);
-    float angle_step = (2.0f * PI * svp->electrical_frequency) / svp->svpwm_update_frequency;
-    svp->angle += angle_step;
-    if (svp->angle >= 2.0f * PI) {
-        svp->angle -= 2.0f * PI;
-    }
-}
+// void tim2_callback(timer_event_t event) {
+//     if (event == TIMER_EVENT_UPDATE) {
+//         timer_sinusoidal_next_step(&tim2, 1);
+//         timer_sinusoidal_next_step(&tim2, 2);
+//         timer_sinusoidal_next_step(&tim2, 3);
+//     }
+// }
 
 extern "C" void TIM2_IRQHandler(void) {
+    const timer_config_t *cfg = timer_cfg_table[1];
+    if (!cfg) return;
     if (TIM2->SR & TIM_SR_UIF) {
-        // Clear interrupt flag
         TIM2->SR &= ~TIM_SR_UIF;
-        if (timer2_cfg) {
-            timer_sinusoidal_next_step(timer2_cfg, 1);
-            timer_sinusoidal_next_step(timer2_cfg, 2);
-            timer_sinusoidal_next_step(timer2_cfg, 3);
+        if (cfg->interrupt_callback) {
+            cfg->interrupt_callback(TIMER_EVENT_UPDATE);
         }
     }
 }
 
-extern volatile bool encoder_calibration_hold;
-
 extern "C" void TIM1_UP_TIM10_IRQHandler(void) {
-    if(TIM1->SR & TIM_SR_UIF) {
+    const timer_config_t *cfg = timer_cfg_table[0];
+    if (!cfg) return;
+    if (TIM1->SR & TIM_SR_UIF) {
         TIM1->SR &= ~TIM_SR_UIF;
-        if (!encoder_calibration_hold)
-            svpwm_update(&g_svpwm);
+        if (cfg->interrupt_callback) {
+            cfg->interrupt_callback(TIMER_EVENT_UPDATE);
+        }
     }
 }
 

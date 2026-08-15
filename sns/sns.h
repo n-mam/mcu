@@ -246,7 +246,8 @@ inline void adc_tim_dma_test() {
         ADC_RES_12BIT,        // resolution
         ADC_SAMPLE_84,        // sampleTime
         ADC_TRIGGER_TIM2_TRGO, // EXTSEL (TIM2)
-        adc_callback           // interrupt handler
+        adc_callback,          // interrupt handler
+        nullptr
     };
     // Enable clock for ADC peripheral
     // to access ADC common registers

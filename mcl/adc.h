@@ -88,8 +88,8 @@ typedef enum {
 } ADC_ExternalTrigger_t;
 #endif
 
-typedef void (*adc_interrupt_callback_t)(int);
-adc_interrupt_callback_t adc_interrupt_callback;
+typedef void (*adc_interrupt_callback_reg_t)(int);
+typedef void (*adc_interrupt_callback_inj_t)(uint16_t, uint16_t);
 
 typedef struct {
     ADC_TypeDef * _instance;
@@ -97,9 +97,29 @@ typedef struct {
     ADC_Alignment_t _alignment;
     ADC_Resolution_t _resolution;
     ADC_SampleTime_t _sampleTime;
-    ADC_ExternalTrigger_t _externalTrigger;   // EXTSEL value
-    adc_interrupt_callback_t _interrupt_callback;
+    ADC_ExternalTrigger_t _externalTrigger;
+    adc_interrupt_callback_reg_t _interrupt_callback_regular;
+    adc_interrupt_callback_inj_t _interrupt_callback_injected;
 } ADC_Config_t;
+
+inline const ADC_Config_t *adc_cfg_table[3] = {nullptr};
+
+static inline int adc_get_index(const ADC_Config_t *cfg) {
+    if (cfg->_instance == ADC1) {
+        return 0;
+    }
+    #if defined(ADC2)
+    if (cfg->_instance == ADC2) {
+        return 1;
+    }
+    #endif
+    #if defined(ADC3)
+    if (cfg->_instance == ADC3) {
+        return 2;
+    }
+    #endif
+    return -1;
+}
 
 static inline void adc_global_init() {
     static bool initialized = false;
@@ -120,12 +140,19 @@ static inline void adc_gpio_init(GPIO_TypeDef *GPIOx, const std::vector<uint8_t>
         // Analog mode
         GPIOx->MODER &= ~(3UL << shift);
         GPIOx->MODER |=  (3UL << shift);
-        // No pull-up / pull-down
+        // No pull-up/pull-down
         GPIOx->PUPDR &= ~(3UL << shift);
     }
 }
 
+static inline void adc_set_config(const ADC_Config_t *cfg) {
+    int index = adc_get_index(cfg);
+    if (index < 0) return;
+    adc_cfg_table[index] = cfg;
+}
+
 static inline void adc_init(const ADC_Config_t *cfg) {
+    adc_set_config(cfg);
     // ADC off
     cfg->_instance->CR2 = 0;
     // Resolution
@@ -133,8 +160,6 @@ static inline void adc_init(const ADC_Config_t *cfg) {
     cfg->_instance->CR1 |= ((uint32_t)cfg->_resolution << 24);
     // ADC interrupt on overruns
     cfg->_instance->CR1 |= ADC_CR1_OVRIE;
-    // ADC overrun interrupt callback
-    adc_interrupt_callback = cfg->_interrupt_callback;
     // Alignment
     if(cfg->_alignment == ADC_ALIGN_LEFT) {
         cfg->_instance->CR2 |= ADC_CR2_ALIGN;
@@ -203,32 +228,27 @@ static inline uint16_t adc_software_read(const ADC_Config_t *cfg) {
     return (uint16_t)cfg->_instance->DR;
 }
 
-struct current_sense_t {
-    volatile uint16_t raw_phase_a = 0;
-    volatile uint16_t raw_phase_b = 0;
-    volatile bool ready = false;
-    volatile uint32_t isr_hits = 0;
-    float bias_a = 2.5f;     // runtime calibrated bias
-    float bias_b = 2.5f;
-};
-
-current_sense_t g_current;
-
 extern "C" void ADC_IRQHandler(void) {
-    ++(g_current.isr_hits);
+    const ADC_Config_t *cfg = adc_cfg_table[0]; // ADC1 for now
+    if (!cfg) return;
+    ADC_TypeDef *adc = cfg->_instance;
     // Injected conversion complete.
     // JDR1 = phase A
     // JDR2 = phase B
-    if (ADC1->SR & ADC_SR_JEOC) {
-        g_current.raw_phase_a = (uint16_t)ADC1->JDR1;
-        g_current.raw_phase_b = (uint16_t)ADC1->JDR2;
-        g_current.ready = true;
-        ADC1->SR &= ~ADC_SR_JEOC;
+    if (adc->SR & ADC_SR_JEOC) {
+        uint16_t jdr1 = (uint16_t)adc->JDR1;
+        uint16_t jdr2 = (uint16_t)adc->JDR2;
+        adc->SR &= ~ADC_SR_JEOC;
+        if (cfg->_interrupt_callback_injected) {
+            cfg->_interrupt_callback_injected(jdr1, jdr2);
+        }
     }
     // Existing regular ADC overrun handling.
-    if (ADC1->SR & ADC_SR_OVR) {
-        ADC1->SR &= ~ADC_SR_OVR;
-        adc_interrupt_callback(0);
+    if (adc->SR & ADC_SR_OVR) {
+        adc->SR &= ~ADC_SR_OVR;
+        if (cfg->_interrupt_callback_regular) {
+            cfg->_interrupt_callback_regular(0);
+        }
     }
 }
 

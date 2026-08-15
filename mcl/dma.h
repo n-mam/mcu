@@ -30,7 +30,7 @@ struct DMA_Config_t {
 };
 
 // DMA1/DMA2 each having 8 streams
-const DMA_Config_t * dma_stream_cfg[2][8] = {nullptr};
+inline const DMA_Config_t * dma_stream_cfg[2][8] = {nullptr};
 
 static inline void dma_clear_flags(const DMA_Config_t *cfg) {
     // add to these as per use
