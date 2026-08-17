@@ -2,7 +2,6 @@
 if (CMSIS_LINE STREQUAL "f4")
     list(APPEND SOURCE_FILES ${CMSIS_ROOT}/Device/ST/cmsis_device_${CMSIS_LINE}/Source/Templates/system_stm32f4xx.c)
     if (CMSIS_TARGET STREQUAL "f411")
-        add_subdirectory(mcl/cdc) # usb-cdc lib
         list(APPEND SOURCE_FILES ${CMSIS_ROOT}/Device/ST/cmsis_device_${CMSIS_LINE}/Source/Templates/gcc/startup_stm32f411xe.s)
     elseif (CMSIS_TARGET STREQUAL "f446")
         list(APPEND SOURCE_FILES ${CMSIS_ROOT}/Device/ST/cmsis_device_${CMSIS_LINE}/Source/Templates/gcc/startup_stm32f446xx.s)
@@ -52,10 +51,6 @@ target_include_directories(
 set_target_properties(mcu PROPERTIES LINK_DEPENDS
     ${CMAKE_SOURCE_DIR}/mcl/${CMSIS_LINE}/${CMSIS_CORE}/linker.ld
 )
-
-if (CMSIS_TARGET STREQUAL "f411")
-    target_link_libraries(mcu PRIVATE cdc)
-endif()
 
 set_target_properties(mcu PROPERTIES LINK_DEPENDS
     ${CMAKE_SOURCE_DIR}/mcl/${CMSIS_LINE}/${CMSIS_CORE}/linker.ld

@@ -25,7 +25,9 @@ static constexpr
             {20,  test_mpu6050},
             {21,  test_mahony},
             {22,  adc_tim_dma_test},
-            {23,  test_bldc_svpwm},
+            {23,  test_foc_open_loop},
+            {24,  test_foc_closed_loop},
+            {25,  test_as5600},
             #if defined(PICO)
             {99, []() {
                 watchdog_enable(3000, true);
@@ -39,7 +41,7 @@ int main(void) {
     auto *c = getInstance<config>();
     //while(!c->getKeyValue(config::key::action)) { mcl::send_discovery(); };
     while (true) {
-        auto action = 23; //static_cast<int>(c->getKeyValue(config::key::action));
+        auto action = 24; //static_cast<int>(c->getKeyValue(config::key::action));
         LOG << "waiting for new action.. " << action;
         auto it = std::ranges::find_if(dispatch_table,
             [action](const auto& e){ return e.first == action; });

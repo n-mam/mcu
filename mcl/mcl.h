@@ -35,10 +35,6 @@ extern "C" int openamp_send_message(const char *data, int len);
 
 #if defined (STM32F4)
 extern "C" void initialise_monitor_handles(void);
-#if defined (STM32F411xE)
-extern "C" void cdc_main_irq(void (*)(char));
-extern "C" void cdc_write_data(const char *, size_t);
-#endif
 #endif
 
 #include <npb/nm.h>
@@ -152,7 +148,7 @@ inline void initialize_logging(mcl::log::level l) {
                 #if defined (PICO_CYW43_SUPPORTED)
                 nanomsg::write_nano_msg_log(log.c_str(), mcl::log::sink::net);
                 #elif defined (STM32F411xE)
-                cdc_write_data(log.c_str(), log.size());
+                //cdc_write_data(log.c_str(), log.size());
                 #elif defined (STM32F446xx)
                 p_serial->transmit((const uint8_t *)(log + "\n").c_str(), log.size() + 1);
                 #else
@@ -164,7 +160,7 @@ inline void initialize_logging(mcl::log::level l) {
                 #endif
             } else if (sink == mcl::log::sink::cdc) {
                 #if defined (STM32F411xE)
-                cdc_write_data(log.c_str(), log.size());
+                //cdc_write_data(log.c_str(), log.size());
                 #endif
             } else if (sink == mcl::log::sink::spi) {
                 // todo
@@ -184,18 +180,13 @@ inline void initialize() {
     #if defined (STM32F411xE)
     clock_init({25, 192, 2, 4});
     #elif defined (STM32F446xx)
+    SCB->CPACR |= (0xF << 20);
     clock_init({8, 360, 2, 2, 2});
     #elif defined (STM32F767xx)
     clock_init({4, 216, 2, 9});
     #elif defined (STM32H7)
     initialize_h7();
     OpenAMP_init();
-    #endif
-    #if defined (STM32F411xE)
-    cdc_main_irq([](char ch){
-        uart_char_recv(&ch);
-        check_for_message();
-    });
     #endif
     #if defined (STM32F4)
     // Initialize semihosting

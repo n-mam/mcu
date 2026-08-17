@@ -10,11 +10,13 @@ add_compile_options(
     -fno-exceptions
     --specs=nano.specs
     -ffunction-sections
+    -mfpu=fpv4-sp-d16 -mfloat-abi=hard
 )
 
 add_link_options(
     --specs=nosys.specs
     -Wl,-Map=mcu.map -Wl,--gc-sections
+    -mfpu=fpv4-sp-d16 -mfloat-abi=hard
     -T${CMAKE_SOURCE_DIR}/mcl/${CMSIS_LINE}/${CMSIS_CORE}/linker.ld
     #-specs=rdimon.specs -lc -lrdimon #--> uncomment this for semihosting
 )

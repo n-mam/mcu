@@ -1,5 +1,6 @@
 #include <memory>
-#include <motor/foc.h>
+#include <motor/foc_open.h>
+#include <motor/foc_closed.h>
 
 inline void test_m200() {
     auto m200 = mcl::initialize_m200(PWM_PIN_MOTOR, PWM_FREQ_MOTOR);
@@ -364,14 +365,11 @@ inline void test_bldc_trapezoidal_pwm_comp() {
     // Start the timer
     timer_start(&tm);
 
-    ramp_profile_t ramp{};
+    ramp_profile_trap_t ramp{};
     // Electrical frequency:
     // 5 Hz -> 30 Hz electrical
     ramp.ef_start = 5.0f;
     ramp.ef_end   = 30.0f;
-    // Unused in trapezoidal mode.
-    ramp.m_start = 0.0f;
-    ramp.m_end   = 0.0f;
     // PWM duty:
     // 15% -> 75%
     ramp.trap_duty_start = 0.15f;
