@@ -6,10 +6,6 @@ constexpr float CSA_GAIN   = 50.0f;      // V/V, INA240A2
 constexpr float R_SHUNT    = 0.010f;     // 10 mill ohms
 constexpr float ADC_MAXCNT = 4095.0f;
 
-// DFRobot 2804, 12N/14P
-constexpr uint32_t POLE_PAIRS = 7;
-constexpr uint32_t ENCODER_COUNTS = 4096;
-
 constexpr float PI = 3.14159265359f;
 constexpr float PI3 = PI / 3.0f;
 constexpr float TWO_PI = 6.28318530718f;
@@ -276,7 +272,6 @@ inline float adc_to_phase_amps(uint16_t raw, float v_bias) {
 
 inline void clarke_transform(phase_currents_t &pc) {
     constexpr float ONE_THIRD = 1.0f / 3.0f;
-    constexpr float SQRT3 = 1.73205080757f;
     // amplitude-invariant Clarke transformation
     // uses all 3 measured/reconstructed phases
     pc.alpha = (2.0f * pc.ia - pc.ib - pc.ic) * ONE_THIRD;
@@ -299,20 +294,6 @@ inline phase_currents_t compute_dq_currents(uint16_t raw_a, uint16_t raw_b,
     clarke_transform(pc);
     park_transform(pc, theta);
     return pc;
-}
-
-inline uint16_t as5600_read_raw_angle(serial::i2c &bus) {
-    //todo:: 4 byte read for now because of 2-byte read bug
-    uint8_t buf[4] = {0};
-    bus.read(0x36, 0x0C, buf, 4);
-    return ((uint16_t)(buf[0] & 0x0F) << 8) | buf[1];
-}
-
-inline float encoder_to_electrical_angle(uint16_t raw, float zero_offset) {
-    int32_t delta = (int32_t)raw - (int32_t)zero_offset;
-    delta = ((delta % (int32_t)ENCODER_COUNTS) + (int32_t)ENCODER_COUNTS) % (int32_t)ENCODER_COUNTS;
-    float mech_frac = (float)delta / (float)ENCODER_COUNTS;
-    return fmodf(mech_frac * TWO_PI * POLE_PAIRS, TWO_PI);
 }
 
 inline void pi_reset(pi_controller_t &pi) {
