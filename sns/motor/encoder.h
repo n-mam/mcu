@@ -119,4 +119,13 @@ inline float encoder_to_electrical_angle(uint16_t raw,
     return theta;
 }
 
+inline void test_as5600() {
+    serial::i2c bus(3, 10, 400'000, I2C2, GPIOB);
+    while(true) {
+        uint16_t raw = as5600_read_raw_angle(bus);
+        LOG << " raw: " << raw;
+        mcl::sleep_ms(1);
+    }
+}
+
 #endif

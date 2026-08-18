@@ -4,21 +4,18 @@
 #include <motor/foc_common.h>
 #include <motor/encoder.h>
 
-struct closed_loop_foc_t {
+struct ramp_foc_t {
     float iq_start;
     float iq_end;
     float iq_ramp_duration_s;
 };
 
 inline svpwm_t g_svm;
+inline ramp_foc_t g_ramp;
 inline current_loop_t g_current_loop;
-inline closed_loop_foc_t g_closed_loop;
-inline volatile float g_theta_measured = 0.0f;
 inline volatile bool current_loop_enabled = false;
 inline volatile bool encoder_calibration_hold = true;
 
-inline volatile float g_iq_measured = 0.0f;
-inline volatile float g_id_measured = 0.0f;
 inline volatile uint16_t g_raw_a = 0;
 inline volatile uint16_t g_raw_b = 0;
 
@@ -28,41 +25,48 @@ inline volatile bool g_current_bias_calibrating = false;
 inline volatile uint32_t g_current_bias_samples = 0;
 inline volatile uint64_t g_current_bias_sum_a = 0;
 inline volatile uint64_t g_current_bias_sum_b = 0;
-inline volatile float g_vd, g_vq;
 
+//trace
+inline volatile float g_a = 0.0f;
+inline volatile float g_b = 0.0f;
+inline volatile float g_d = 0.0f;
+inline volatile float g_q = 0.0f;
+inline volatile float g_vd = 0.0f;
+inline volatile float g_vq = 0.0f;
 inline volatile float g_theta = 0.0f;
-inline volatile float g_i_alpha = 0.0f;
-inline volatile float g_i_beta = 0.0f;
-inline volatile float g_i_mag = 0.0f;
-inline volatile float g_i_angle = 0.0f;
-inline volatile float g_id_error = 0.0f;
-inline volatile float g_iq_error = 0.0f;
+inline volatile float g_d_err = 0.0f;
+inline volatile float g_q_err = 0.0f;
+inline volatile float g_ab_mag = 0.0f;
+inline volatile float g_ab_angle = 0.0f;
 
 inline void closed_loop_update(uint16_t raw_a, uint16_t raw_b, float theta, float dt) {
 
     if (!current_loop_enabled) return;
+
     phase_currents_t pc = compute_dq_currents(
             raw_a, raw_b, g_current_bias_a, g_current_bias_b, theta);
 
     g_raw_a = raw_a;
     g_raw_b = raw_b;
     g_theta = theta;
-    g_i_alpha = pc.alpha;
-    g_i_beta  = pc.beta;
-    g_i_mag   = sqrtf(pc.alpha * pc.alpha + pc.beta * pc.beta);
-    g_i_angle = atan2f(pc.beta, pc.alpha);
-    if (g_i_angle < 0.0f) g_i_angle += TWO_PI;
-    g_iq_measured = pc.q;
-    g_id_measured = pc.d;
+    g_a = pc.alpha;
+    g_b = pc.beta;
+    g_d = pc.d;
+    g_q = pc.q;
+    g_ab_mag = sqrtf(pc.alpha * pc.alpha + pc.beta * pc.beta);
+    g_ab_angle = atan2f(pc.beta, pc.alpha);
+    if (g_ab_angle < 0.0f) g_ab_angle += TWO_PI;
 
-    float id_error = g_current_loop.id_ref - pc.d;
-    float iq_error = g_current_loop.iq_ref - pc.q;
-    float vd = pi_update(g_current_loop.id_pi, id_error, dt);
-    float vq = pi_update(g_current_loop.iq_pi, iq_error, dt);
+    float d_error = g_current_loop.id_ref - pc.d;
+    float q_error = g_current_loop.iq_ref - pc.q;
 
-    g_vd = vd; g_vq = vq;
-    g_id_error = id_error;
-    g_iq_error = iq_error;
+    float vd = pi_update(g_current_loop.id_pi, d_error, dt);
+    float vq = pi_update(g_current_loop.iq_pi, q_error, dt);
+
+    g_vd = vd;
+    g_vq = vq;
+    g_d_err = d_error;
+    g_q_err = q_error;
 
     // Inverse Park:
     // Vd/Vq -> Valpha/Vbeta
@@ -89,7 +93,7 @@ inline void adc_callback_injected(uint16_t phase_a, uint16_t phase_b) {
     if (encoder_calibration_hold) return;
     // closed-loop FOC runs here.
     constexpr float CLOSED_LOOP_DT = 1.0f / 20'000.0f;
-    closed_loop_update(phase_a, phase_b, g_theta_measured, CLOSED_LOOP_DT);
+    closed_loop_update(phase_a, phase_b, g_theta, CLOSED_LOOP_DT);
 }
 
 inline void current_bias_calibration_start() {
@@ -160,8 +164,8 @@ inline void test_foc_closed_loop() {
     tm.instance->CCR2 = zero_duty;
     tm.instance->CCR3 = zero_duty;
     current_bias_calibration_start();
-    // Start TIM1 once. This also starts the synchronized
-    // ADC injected sampling.
+    // Start TIM1 once. This also starts
+    // the synchronized ADC injected sampling.
     timer_start(&tm);
     while (!current_bias_calibration_complete(CURRENT_BIAS_SAMPLES)) {
         __WFI();
@@ -180,15 +184,16 @@ inline void test_foc_closed_loop() {
 
     constexpr float SVPWM_HEADROOM = SVPWM_MAX_MODULATION * 9.49f * 0.9f; // ~4.93V, true system ceiling with margin
     constexpr float PI_OUT_LIMIT = SVPWM_HEADROOM / 1.41421356f;          // ~3.49V per axis, worst case stays inside the real circle
-    g_current_loop.id_pi = { .kp = 0.02f, .ki = 5.0f, .integrator = 0.0f, .out_min = -PI_OUT_LIMIT, .out_max = PI_OUT_LIMIT };
-    g_current_loop.iq_pi = { .kp = 0.02f, .ki = 5.0f, .integrator = 0.0f, .out_min = -PI_OUT_LIMIT, .out_max = PI_OUT_LIMIT };
+    g_current_loop.id_pi = { .kp = 1.0f, .ki = 0.01f, .integrator = 0.0f, .out_min = -PI_OUT_LIMIT, .out_max = PI_OUT_LIMIT };
+    g_current_loop.iq_pi = { .kp = 1.0f, .ki = 0.01f, .integrator = 0.0f, .out_min = -PI_OUT_LIMIT, .out_max = PI_OUT_LIMIT };
 
     current_loop_reset(g_current_loop);
     current_loop_enabled = true;
+
     // soft-start the torque command
-    g_closed_loop.iq_start = 0.0f;
-    g_closed_loop.iq_end = 0.01f;
-    g_closed_loop.iq_ramp_duration_s = 8.0f;
+    g_ramp.iq_start = 0.0f;
+    g_ramp.iq_end = 0.25f;
+    g_ramp.iq_ramp_duration_s = 8.0f;
     const uint32_t iq_ramp_start_ms = mcl::time_ms();
     uint32_t last_encoder_ms = 0;
 
@@ -198,43 +203,23 @@ inline void test_foc_closed_loop() {
         float elapsed_s = (float)(now_ms - iq_ramp_start_ms) * 0.001f;
         g_current_loop.iq_ref =
             ramp_value(
-                g_closed_loop.iq_start,
-                g_closed_loop.iq_end,
-                g_closed_loop.iq_ramp_duration_s,
+                g_ramp.iq_start,
+                g_ramp.iq_end,
+                g_ramp.iq_ramp_duration_s,
                 elapsed_s);
         if ((uint32_t)(now_ms - last_encoder_ms) >= 1U) {
             uint16_t raw = as5600_read_raw_angle(bus);
-            g_theta_measured = encoder_to_electrical_angle(raw, encoder.zero_raw, encoder.sign);
+            g_theta = encoder_to_electrical_angle(raw, encoder.zero_raw, encoder.sign);
             last_encoder_ms = now_ms;
-            LOG
-                << "theta=" << g_theta_measured
-                << " ctrl=" << g_theta
-                << " ia=" << g_i_alpha
-                << " ib=" << g_i_beta
-                << " Imag=" << g_i_mag
-                << " Iang=" << g_i_angle
-                << " id=" << g_id_measured
-                << " iq=" << g_iq_measured
-                << " iderr=" << g_id_error
-                << " iqerr=" << g_iq_error
-                << " vd=" << g_vd
-                << " vq=" << g_vq
-                << " mod=" << g_svm.modulation
-                << " idi=" << g_current_loop.id_pi.integrator
-                << " iqi=" << g_current_loop.iq_pi.integrator;
+            LOG << "T:" << g_theta << " ph_a: " << g_raw_a << " ph_b: " << g_raw_b
+                    << " a: " << g_a << " b: " << g_b << " d: " << g_d << " q: " << g_q
+                        << " d_err:" << g_d_err << " q_err:" << g_q_err << " vd: " << g_vd << " vq: " << g_vq
+                            << " ab_mag: " << g_ab_mag << " ab_ang: " << g_ab_angle << " mod: " << g_svm.modulation
+                                << " idi: " << g_current_loop.id_pi.integrator << " iqi: " << g_current_loop.iq_pi.integrator;
         }
     }
 
     timer_stop(&tm);
-}
-
-inline void test_as5600() {
-    serial::i2c bus(3, 10, 400'000, I2C2, GPIOB);
-    while(true) {
-        uint16_t raw = as5600_read_raw_angle(bus);
-        LOG << " raw: " << raw;
-        mcl::sleep_ms(1);
-    }
 }
 
 #endif

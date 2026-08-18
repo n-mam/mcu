@@ -81,31 +81,22 @@ struct svpwm_t {
     float modulation = 0.0f;
 };
 
-/*
- * Apply a stationary-frame voltage vector:
- *
- *     alpha,beta = Vref vector normalized to Vbus
- *
- * The input magnitude is:
- *
- *     modulation = sqrt(alpha^2 + beta^2)
- *
- * with the linear SVPWM limit:
- *
- *     modulation <= 1/sqrt(3)
- *
- * This function:
- *   - calculates sector
- *   - calculates T1/T2/T0
- *   - calculates Ta/Tb/Tc
- *   - writes CCR1/CCR2/CCR3
- *
- * It does NOT:
- *   - advance angle
- *   - read encoder
- *   - run PI
- *   - know open/closed loop
- */
+// Apply a stationary-frame voltage vector:
+//     alpha,beta = Vref vector normalized to Vbus
+// The input magnitude is:
+//     modulation = sqrt(alpha^2 + beta^2)
+// with the linear SVPWM limit:
+//     modulation <= 1/sqrt(3)
+// This function:
+// - calculates sector
+// - calculates T1/T2/T0
+// - calculates Ta/Tb/Tc
+// - writes CCR1/CCR2/CCR3
+// It does NOT:
+// - advance angle
+// - read encoder
+// - run PI
+// - know open/closed loop
 inline void svpwm_update(svpwm_t &svpwm, float alpha, float beta) {
     // Store command for diagnostics.
     svpwm.alpha = alpha;
@@ -296,10 +287,6 @@ inline phase_currents_t compute_dq_currents(uint16_t raw_a, uint16_t raw_b,
     return pc;
 }
 
-inline void pi_reset(pi_controller_t &pi) {
-    pi.integrator = 0.0f;
-}
-
 inline float pi_update(pi_controller_t &pi, float error, float dt) {
     pi.integrator += pi.ki * error * dt;
     if (pi.integrator > pi.out_max) pi.integrator = pi.out_max;
@@ -310,10 +297,13 @@ inline float pi_update(pi_controller_t &pi, float error, float dt) {
     return out;
 }
 
+inline void pi_reset(pi_controller_t &pi) {
+    pi.integrator = 0.0f;
+}
+
 inline void current_loop_reset(current_loop_t &loop) {
     pi_reset(loop.id_pi);
     pi_reset(loop.iq_pi);
 }
-
 
 #endif
