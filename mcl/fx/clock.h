@@ -30,6 +30,14 @@ inline uint64_t time_ms() {
     #endif
 }
 
+inline uint64_t time_us() {
+    #if defined(PICO)
+        return time_us_64();
+    #elif defined(STM32)
+        return (uint64_t)DWT->CYCCNT / (SystemCoreClock / 1000000U);
+    #endif
+}
+
 inline void delay_us(uint32_t us) {
     #if defined STM32
     uint32_t start = DWT->CYCCNT;

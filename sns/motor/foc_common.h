@@ -112,13 +112,6 @@ inline void svpwm_update(svpwm_t &svpwm, float alpha, float beta) {
         theta += TWO_PI;
     }
     svpwm.angle = theta;
-    // Sector:
-    // 0:   0 .. 60°
-    // 1:  60 .. 120°
-    // 2: 120 .. 180°
-    // 3: 180 .. 240°
-    // 4: 240 .. 300°
-    // 5: 300 .. 360°
     int sector = (int)(theta / PI3);
     if (sector >= 6) {
         sector = 5;
