@@ -38,6 +38,13 @@ inline uint64_t time_us() {
     #endif
 }
 
+inline uint32_t elapsed_us(uint32_t start_cycles) {
+    uint32_t now_cycles = DWT->CYCCNT;
+    // correct across HW wrap: uint32_t modulus matches CYCCNT's native 2^32 wrap
+    uint32_t delta_cycles = now_cycles - start_cycles;
+    return delta_cycles / (SystemCoreClock / 1'000'000U);
+}
+
 inline void delay_us(uint32_t us) {
     #if defined STM32
     uint32_t start = DWT->CYCCNT;

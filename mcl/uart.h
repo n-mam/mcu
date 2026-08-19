@@ -7,9 +7,17 @@ namespace mcl {
 
 struct uart {
 
-    uart(uint16_t txPin, uint16_t rxPin, USART_TypeDef *instance, GPIO_TypeDef *gpioPort = GPIOA,
-            uint32_t baudRate = 115200, uint8_t wordLength = 8, bool enableParity = false)
-        : txPin(txPin), rxPin(rxPin), gpioPort(gpioPort), instance(instance) {
+    uart(uint16_t txPin, uint16_t rxPin,
+            USART_TypeDef *instance,
+            GPIO_TypeDef *gpioPort = GPIOA,
+            uint32_t baudRate = 115200,
+            uint8_t wordLength = 8,
+            bool enableParity = false)
+        : txPin(txPin),
+          rxPin(rxPin),
+          gpioPort(gpioPort),
+          instance(instance),
+          txDmaStream(DMA1_Stream6) {
             init(txPin, rxPin, baudRate, wordLength, enableParity);
     }
 
@@ -61,8 +69,38 @@ struct uart {
         #endif
         // Enable Transmitter and Receiver
         instance->CR1 |= USART_CR1_TE | USART_CR1_RE;
+        // Enable USART TX DMA request
+        instance->CR3 |= USART_CR3_DMAT;
         // Enable USART
         instance->CR1 |= USART_CR1_UE;
+        // Initialize TX DMA
+        initTxDma();
+    }
+
+    void initTxDma() {
+        // Enable DMA1 clock
+        RCC->AHB1ENR |= RCC_AHB1ENR_DMA1EN;
+        // Disable DMA stream
+        txDmaStream->CR &= ~DMA_SxCR_EN;
+        // Wait until DMA stream is actually disabled
+        while (txDmaStream->CR & DMA_SxCR_EN);
+        // Clear all configuration
+        txDmaStream->CR = 0;
+        // USART2_TX:
+        // DMA1 Stream 6, Channel 4
+        txDmaStream->CR |= (4 << DMA_SxCR_CHSEL_Pos);
+        // Memory address increments after each byte
+        txDmaStream->CR |= DMA_SxCR_MINC;
+        // Memory -> peripheral
+        txDmaStream->CR |= DMA_SxCR_DIR_0;
+        // Peripheral size = 8 bits
+        txDmaStream->CR &= ~DMA_SxCR_PSIZE;
+        // Memory size = 8 bits
+        txDmaStream->CR &= ~DMA_SxCR_MSIZE;
+        // Normal mode, not circular
+        txDmaStream->CR &= ~DMA_SxCR_CIRC;
+        // USART2 data register is the peripheral destination
+        txDmaStream->PAR = (uint32_t)&instance->DR;
     }
 
     void transmit(uint8_t data) {
@@ -79,9 +117,25 @@ struct uart {
     }
 
     void transmit(const uint8_t *data, uint16_t size) {
-        for (uint16_t i = 0; i < size; ++i) {
-            transmit(data[i]);
-        }
+        // Don't start another transfer while DMA is active
+        if (txDmaStream->CR & DMA_SxCR_EN) return;
+        // Don't overflow our internal buffer
+        if (size > TX_BUFFER_SIZE) return;
+        // Copy caller's data into UART-owned buffer
+        memcpy(txBuffer, data, size);
+        // Clear DMA1 Stream 6 flags
+        DMA1->HIFCR =
+            DMA_HIFCR_CFEIF6  |
+            DMA_HIFCR_CDMEIF6 |
+            DMA_HIFCR_CTEIF6  |
+            DMA_HIFCR_CHTIF6  |
+            DMA_HIFCR_CTCIF6;
+        // DMA reads from our persistent buffer
+        txDmaStream->M0AR = (uint32_t)txBuffer;
+        // Number of bytes
+        txDmaStream->NDTR = size;
+        // Start DMA
+        txDmaStream->CR |= DMA_SxCR_EN;
     }
 
     uint8_t receive() {
@@ -103,12 +157,19 @@ struct uart {
         }
     }
 
+    bool txBusy() {
+        return (txDmaStream->CR & DMA_SxCR_EN) != 0;
+    }
+
     private:
 
     uint16_t txPin;
     uint16_t rxPin;
     GPIO_TypeDef *gpioPort;
     USART_TypeDef *instance;
+    DMA_Stream_TypeDef *txDmaStream;
+    static constexpr uint16_t TX_BUFFER_SIZE = 768;
+    uint8_t txBuffer[TX_BUFFER_SIZE];
 };
 
 }

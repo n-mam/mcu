@@ -16,9 +16,6 @@ inline current_loop_t g_current_loop;
 inline volatile bool current_loop_enabled = false;
 inline volatile bool encoder_calibration_hold = true;
 
-inline volatile uint16_t g_raw_a = 0;
-inline volatile uint16_t g_raw_b = 0;
-
 inline volatile float g_current_bias_a = 2.5f;
 inline volatile float g_current_bias_b = 2.5f;
 inline volatile bool g_current_bias_calibrating = false;
@@ -34,26 +31,15 @@ inline volatile float g_q = 0.0f;
 inline volatile float g_vd = 0.0f;
 inline volatile float g_vq = 0.0f;
 inline volatile float g_theta = 0.0f;
-inline volatile float g_d_err = 0.0f;
-inline volatile float g_q_err = 0.0f;
-inline volatile float g_ab_mag = 0.0f;
-inline volatile float g_ab_angle = 0.0f;
+inline volatile uint16_t g_raw_a = 0;
+inline volatile uint16_t g_raw_b = 0;
 
 inline void closed_loop_update(
         uint16_t raw_a, uint16_t raw_b, float theta, float dt) {
+
     if (!current_loop_enabled) return;
     phase_currents_t pc = compute_dq_currents(
             raw_a, raw_b, g_current_bias_a, g_current_bias_b, theta);
-    g_raw_a = raw_a;
-    g_raw_b = raw_b;
-    g_theta = theta;
-    g_a = pc.alpha;
-    g_b = pc.beta;
-    g_d = pc.d;
-    g_q = pc.q;
-    g_ab_mag = sqrtf(pc.alpha * pc.alpha + pc.beta * pc.beta);
-    g_ab_angle = atan2f(pc.beta, pc.alpha);
-    if (g_ab_angle < 0.0f) g_ab_angle += TWO_PI;
 
     float d_error = g_current_loop.id_ref - pc.d;
     float q_error = g_current_loop.iq_ref - pc.q;
@@ -61,19 +47,28 @@ inline void closed_loop_update(
     float vd = pi_update(g_current_loop.id_pi, d_error, dt);
     float vq = pi_update(g_current_loop.iq_pi, q_error, dt);
 
+    g_vd = vd;
+    g_vq = vq;
+    g_d = pc.d;
+    g_q = pc.q;
+    g_b = pc.beta;
+    g_a = pc.alpha;
+    g_raw_a = raw_a;
+    g_raw_b = raw_b;
+    g_theta = theta;
+
     // Limit the requested voltage vector to the linear SVPWM boundary.
     const float v_limit = SVPWM_MAX_MODULATION * g_current_loop.vbus;
     const float v_mag = sqrtf(vd * vd + vq * vq);
     if (v_mag > v_limit) {
         const float scale = v_limit / v_mag;
         vd *= scale; vq *= scale;
+        // Anti-windup: the integrators need to reflect what was
+        // actually applied, not the raw uncapped calculation --
+        // otherwise they keep growing against a limit they can't see.
+        g_current_loop.id_pi.integrator *= scale;
+        g_current_loop.iq_pi.integrator *= scale;
     }
-
-    g_vd = vd;
-    g_vq = vq;
-    g_d_err = d_error;
-    g_q_err = q_error;
-
     // Inverse Park:
     // Vd/Vq -> Valpha/Vbeta
     float c = cosf(theta);
@@ -207,12 +202,18 @@ inline void test_foc_closed_loop() {
     g_ramp.iq_end = 0.10f;
     g_ramp.iq_ramp_duration_s = 8.0f;
 
-    uint32_t last_log_us = mcl::time_us();
-    const uint32_t iq_ramp_start_us = mcl::time_us();
-    constexpr uint32_t log_period_us = 8'000'000U;  // 8 seconds
+    char log_buffer[512];
+    uint32_t last_cycles = DWT->CYCCNT;
+    uint64_t total_cycles = 0;
+    uint32_t last_log_us = 0;
+    constexpr uint32_t log_period_us = 500'000U;
+
     while (true) {
-        uint32_t now_us = mcl::time_us();
-        float elapsed_s = (float)(now_us - iq_ramp_start_us) * 1e-6f;
+        uint32_t now_cycles = DWT->CYCCNT;
+        total_cycles += (uint32_t)(now_cycles - last_cycles);
+        last_cycles = now_cycles;
+        float elapsed_s = (float)total_cycles / (float)SystemCoreClock;
+        uint32_t now_us = (uint32_t)(elapsed_s * 1e6f); // keep for the existing log-gating comparison
         g_current_loop.iq_ref =
             ramp_value(
                 g_ramp.iq_start,
@@ -221,14 +222,17 @@ inline void test_foc_closed_loop() {
                 elapsed_s);
             uint16_t raw = as5600_read_raw_angle(bus);
             g_theta = encoder_to_electrical_angle(raw, encoder.zero_raw, encoder.sign);
-            // log only once every 8 seconds
-            if (0) {//(uint32_t)(now_us - last_log_us) >= log_period_us) {
+            // log only once every 10 seconds
+            if ((uint32_t)(now_us - last_log_us) >= log_period_us) {
                 last_log_us = now_us;
-                LOG << "T:" << g_theta << " ph_a: " << g_raw_a << " ph_b: " << g_raw_b
-                        << " a: " << g_a << " b: " << g_b << " d: " << g_d << " q: " << g_q
-                            << " d_err:" << g_d_err << " q_err:" << g_q_err << " vd: " << g_vd << " vq: " << g_vq
-                                << " ab_mag: " << g_ab_mag << " ab_ang: " << g_ab_angle << " mod: " << g_svm.modulation
-                                    << " idi: " << g_current_loop.id_pi.integrator << " iqi: " << g_current_loop.iq_pi.integrator;
+                int len = snprintf(log_buffer, sizeof(log_buffer),
+                    " T:%f elapsed:%f ph_a:%d ph_b:%d a:%f b:%f iq_ref:%f d:%f q:%f vd:%f vq:%f mod:%f d_i:%f q_i:%f",
+                        g_theta, elapsed_s, g_raw_a, g_raw_b, g_a, g_b, g_current_loop.iq_ref, g_d, g_q, g_vd, g_vq,
+                            g_svm.modulation, g_current_loop.id_pi.integrator, g_current_loop.iq_pi.integrator);
+                if (len > 0) {
+                    if (len >= sizeof(log_buffer)) len = sizeof(log_buffer) - 1;
+                    LOG << std::string(log_buffer, len);
+                }
             }
     }
 
