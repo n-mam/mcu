@@ -4,15 +4,22 @@
 // DFRobot 2804, 12N/14P
 constexpr uint32_t POLE_PAIRS = 7;
 
-// we want to determine two things
-// Zero — where is the encoder when the motor is at electrical angle 0?
-// Sign — when we command positive electrical rotation, does the encoder count go up or down?
-struct encoder_calibration_t {
+struct encoder_state_t {
+    // we want to determine two things
+    // Zero — where is the encoder when the motor is at electrical angle 0?
+    // Sign — when we command positive electrical rotation, does the encoder count go up or down?
     // +1: encoder increases with positive electrical angle
     // -1: encoder decreases with positive electrical angle
     int8_t sign;
     uint16_t zero_raw;
+    uint16_t raw;
+    float mechanical_angle = 0.0f;
+    float electrical_angle = 0.0f;
+    float mechanical_velocity = 0.0f;
+    float electrical_velocity = 0.0f;
 };
+
+inline encoder_state_t encoder;
 
 inline uint16_t as5600_read_raw_angle(serial::i2c& bus) {
     //todo:: 4 byte read for now because of 2-byte read bug
@@ -43,20 +50,18 @@ inline int32_t encoder_signed_wrap_delta(uint16_t from, uint16_t to) {
     return d;
 }
 
-inline encoder_calibration_t calibrate_encoder(serial::i2c& bus, svpwm_t& svm) {
+inline void calibrate_encoder(serial::i2c& bus, svpwm_t& svm) {
     // Keep the modulation relatively small. It should be large enough to
     // overcome cogging/friction, but not so large that the rotor
     // heats unnecessarily.
-    encoder_calibration_t result{};
     // STEP 1:
     // Force the rotor to electrical angle 0.
     // Valpha = +V
     // Vbeta  =  0
     svpwm_update(svm, 0.15f, 0.0f);
     mcl::sleep_ms(1000);
-    const uint16_t zero_raw = average_encoder_raw(bus);
-    result.zero_raw = zero_raw;
-    LOG << " encoder calibration zero raw = " << zero_raw;
+    encoder.zero_raw = average_encoder_raw(bus);
+    LOG << " encoder calibration zero raw = " << encoder.zero_raw;
     // STEP 2:
     // Move the electrical field +90 degrees.
     // Valpha = 0
@@ -67,21 +72,21 @@ inline encoder_calibration_t calibrate_encoder(serial::i2c& bus, svpwm_t& svm) {
     svpwm_update(svm, 0.0f, 0.15f);
     mcl::sleep_ms(1000);
     const uint16_t plus_90_raw = average_encoder_raw(bus);
-    const int32_t delta = encoder_signed_wrap_delta(zero_raw, plus_90_raw);
+    const int32_t delta = encoder_signed_wrap_delta(encoder.zero_raw, plus_90_raw);
     // Determine direction.
     // We expect a meaningful encoder movement. If there is almost
     // no movement, calibration should fail rather than silently
     // choosing a direction.
     constexpr int32_t MIN_DIRECTION_COUNTS = 5;
     if (delta > MIN_DIRECTION_COUNTS) {
-        result.sign = +1;
+        encoder.sign = +1;
     } else if (delta < -MIN_DIRECTION_COUNTS) {
-        result.sign = -1;
+        encoder.sign = -1;
     } else {
-        result.sign = 0;
+        encoder.sign = 0;
     }
     LOG << "encoder +90 raw = " << plus_90_raw
-        << " delta = " << delta << " sign = " << (int)result.sign;
+        << " delta = " << delta << " sign = " << (int)encoder.sign;
     // Return to electrical zero so the rotor is left in a known state.
     svpwm_update(svm, 0.15f, 0.0f);
     mcl::sleep_ms(1000);
@@ -89,14 +94,13 @@ inline encoder_calibration_t calibrate_encoder(serial::i2c& bus, svpwm_t& svm) {
     // This catches cases where the rotor did not settle exactly
     // where it started.
     const uint16_t zero_final = average_encoder_raw(bus);
-    const int32_t zero_error = encoder_signed_wrap_delta(zero_raw, zero_final);
+    const int32_t zero_error = encoder_signed_wrap_delta(encoder.zero_raw, zero_final);
     if (zero_error > 20 || zero_error < -20) {
         LOG << "WARNING: encoder zero moved by " << zero_error << " counts";
     }
-    result.zero_raw = zero_final;
+    encoder.zero_raw = zero_final;
     LOG << "encoder calibration final zero = "
-            << result.zero_raw << " sign = " << (int)result.sign;
-    return result;
+            << encoder.zero_raw << " sign = " << (int)encoder.sign;
 }
 
 inline float encoder_to_electrical_angle(uint16_t raw,
@@ -117,6 +121,15 @@ inline float encoder_to_electrical_angle(uint16_t raw,
     if (theta < 0.0f)
         theta += TWO_PI;
     return theta;
+}
+
+inline void encoder_read_and_update_angles(serial::i2c& bus) {
+    encoder.raw = as5600_read_raw_angle(bus);
+    encoder.electrical_angle =
+        encoder_to_electrical_angle(
+            encoder.raw,
+            encoder.zero_raw,
+            encoder.sign);
 }
 
 inline void test_as5600() {

@@ -1,6 +1,5 @@
 #include <memory>
-#include <motor/foc_open.h>
-#include <motor/foc_closed.h>
+#include <foc/foc_common.h>
 
 inline void test_m200() {
     auto m200 = mcl::initialize_m200(PWM_PIN_MOTOR, PWM_FREQ_MOTOR);

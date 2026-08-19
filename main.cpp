@@ -1,4 +1,6 @@
 #include <sns/sns.h>
+#include <foc/foc_open.h>
+#include <foc/foc_closed.h>
 
 static constexpr
     std::pair<int, void(*)()>
