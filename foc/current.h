@@ -16,22 +16,26 @@ struct pi_controller_t {
 };
 
 struct current_control_t {
-    pi_controller_t id_pi;
-    pi_controller_t iq_pi;
-    float id_ref = 0.0f;
-    float iq_ref = 0.0f;
-    float id = 0.0f;
-    float iq = 0.0f;
+    pi_controller_t d_pi;
+    pi_controller_t q_pi;
+    float d_ref = 0.0f;
+    float q_ref = 0.0f;
     float vd = 0.0f;
     float vq = 0.0f;
     float vbus = 9.49f;
     float current_limit = 0.8f;
 };
 
-struct phase_currents_t {
-    float ia, ib, ic;      // phase currents
-    float alpha, beta;     // stationary frame
-    float d, q;            // rotating frame
+struct phase_transforms_t {
+    // stationary frame
+    float alpha = 0.0f;
+    float beta = 0.0f;
+    // rotating frame
+    float d = 0.0f;
+    float q = 0.0f;
+    // Inverse Park outputs
+    float v_alpha = 0.0f;
+    float v_beta  = 0.0f;
 };
 
 struct current_sense_t {
@@ -55,6 +59,7 @@ struct current_sense_t {
 
 inline current_sense_t cs;
 inline current_control_t cc;
+inline phase_transforms_t pt;
 
 inline void current_bias_calibration_start() {
     cs.calibration_samples = 0;
@@ -160,27 +165,26 @@ inline float adc_to_phase_amps(uint16_t raw, float v_bias) {
     return (v_adc - v_bias) / (CSA_GAIN * R_SHUNT);
 }
 
-inline void clarke_transform(phase_currents_t &pc) {
+inline void clarke_transform(float ia, float ib, float ic) {
     constexpr float ONE_THIRD = 1.0f / 3.0f;
     // amplitude-invariant Clarke transformation
     // uses all 3 measured/reconstructed phases
-    pc.alpha = (2.0f * pc.ia - pc.ib - pc.ic) * ONE_THIRD;
-    pc.beta  = (pc.ib - pc.ic) * (1.0f / SQRT3);
+    pt.alpha = (2.0f * ia - ib - ic) * ONE_THIRD;
+    pt.beta  = (ib - ic) * (1.0f / SQRT3);
 }
 
-inline void park_transform(phase_currents_t &pc, float electrical_angle) {
+inline void park_transform(float alpha, float beta, float electrical_angle) {
     float c = cosf(electrical_angle);
     float s = sinf(electrical_angle);
-    pc.d =  pc.alpha * c + pc.beta * s;
-    pc.q = -pc.alpha * s + pc.beta * c;
+    pt.d =  alpha * c + beta * s;
+    pt.q = -alpha * s + beta * c;
 }
 
-inline void inverse_park_transform(float vd, float vq, float electrical_angle,
-        float& valpha, float& vbeta) {
+inline void inverse_park_transform(float vd, float vq, float electrical_angle) {
     const float c = cosf(electrical_angle);
     const float s = sinf(electrical_angle);
-    valpha = vd * c - vq * s;
-    vbeta  = vd * s + vq * c;
+    pt.v_alpha = vd * c - vq * s;
+    pt.v_beta  = vd * s + vq * c;
 }
 
 inline float pi_update(pi_controller_t &pi, float error, float dt) {
@@ -198,16 +202,16 @@ inline void pi_reset(pi_controller_t &pi) {
 }
 
 inline void current_loop_reset(current_control_t &cc) {
-    pi_reset(cc.id_pi);
-    pi_reset(cc.iq_pi);
+    pi_reset(cc.d_pi);
+    pi_reset(cc.q_pi);
 }
 
 // current_sense_update()
-//     ADC counts → amps
+//     ADC counts to amps
 // foc_current_update()
-//     amps → dq → PI → voltage
+//     amps to dq to PI to voltage
 // svpwm_apply()
-//     voltage vector → PWM
+//     voltage vector to PWM
 
 inline void current_sense_update(
         current_sense_t& sense, uint16_t raw_a, uint16_t raw_b) {
@@ -219,26 +223,17 @@ inline void current_sense_update(
 }
 
 inline void foc_current_update(current_control_t& control,
-        const current_sense_t& sense, float electrical_angle, float dt) {
-
-    phase_currents_t pc{};
-    // Current sensing has already converted ADC to amps.
-    pc.ia = sense.ia;
-    pc.ib = sense.ib;
-    pc.ic = sense.ic;
-    // abc to alpha/beta
-    clarke_transform(pc);
+        current_sense_t& sense, float electrical_angle, float dt) {
+    // phase abc to alpha/beta
+    clarke_transform(sense.ia, sense.ib, sense.ic);
     // alpha/beta to d/q
-    park_transform(pc, electrical_angle);
-    // Store measured currents.
-    control.id = pc.d;
-    control.iq = pc.q;
+    park_transform(pt.alpha, pt.beta, electrical_angle);
     // Current errors.
-    const float d_error = control.id_ref - control.id;
-    const float q_error = control.iq_ref - control.iq;
+    const float d_error = control.d_ref - pt.d;
+    const float q_error = control.q_ref - pt.q;
     // Current PI controllers.
-    float vd = pi_update(control.id_pi, d_error, dt);
-    float vq = pi_update(control.iq_pi, q_error, dt);
+    float vd = pi_update(control.d_pi, d_error, dt);
+    float vq = pi_update(control.q_pi, q_error, dt);
     // Limit voltage vector to linear SVPWM range.
     const float v_limit = SVPWM_MAX_MODULATION * control.vbus;
     const float v_mag = sqrtf(vd * vd + vq * vq);
@@ -247,8 +242,8 @@ inline void foc_current_update(current_control_t& control,
         vd *= scale;
         vq *= scale;
         // Preserve the existing anti-windup behaviour.
-        control.id_pi.integrator *= scale;
-        control.iq_pi.integrator *= scale;
+        control.d_pi.integrator *= scale;
+        control.q_pi.integrator *= scale;
     }
     // Store the actual voltage command.
     control.vd = vd;

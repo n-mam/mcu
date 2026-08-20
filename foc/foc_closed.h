@@ -17,21 +17,13 @@ inline ramp_foc_t g_ramp;
 inline volatile bool current_loop_enabled = false;
 inline volatile bool encoder_calibration_hold = true;
 
-inline void foc_voltage_apply(svpwm_t& svm, current_control_t& cc,
-        const encoder_state_t& encoder) {
-    float valpha;
-    float vbeta;
-    inverse_park_transform(
-        cc.vd,
-        cc.vq,
-        encoder.electrical_angle,
-        valpha,
-        vbeta);
-    // PI outputs are volts.
-    // SVPWM expects Vref normalized to Vbus.
-    valpha /= cc.vbus;
-    vbeta  /= cc.vbus;
-    svpwm_update(svm, valpha, vbeta);
+inline void foc_voltage_apply(current_control_t& cc, float electrical_angle) {
+    inverse_park_transform(cc.vd, cc.vq, electrical_angle);
+    // pi outputs are in volts; svpwm
+    // expects Vref normalized to Vbus.
+    pt.v_alpha /= cc.vbus;
+    pt.v_beta  /= cc.vbus;
+    svpwm_update(g_svm, pt.v_alpha, pt.v_beta);
 }
 
 inline void adc_callback_injected(uint16_t raw_a, uint16_t raw_b) {
@@ -44,14 +36,14 @@ inline void adc_callback_injected(uint16_t raw_a, uint16_t raw_b) {
     }
     // Don't run FOC during encoder calibration
     if (encoder_calibration_hold) return;
-    // ADC counts → phase currents
+    // ADC counts to phase currents
     current_sense_update(cs, raw_a, raw_b);
     // Current control
     if (!current_loop_enabled) return;
     constexpr float CURRENT_LOOP_DT = 1.0f / 20'000.0f;
     foc_current_update(cc, cs, encoder.electrical_angle, CURRENT_LOOP_DT);
-    // Voltage to PWM
-    foc_voltage_apply(g_svm, cc, encoder);
+    // voltage to PWM
+    foc_voltage_apply(cc, encoder.electrical_angle);
 }
 
 inline void test_foc_closed_loop() {
@@ -115,8 +107,8 @@ inline void test_foc_closed_loop() {
     // v_limit = 9.49 / sqrt(3) ≈ 5.48 V
     // so each PI can request up to ±5.48 V.
     const float v_limit = SVPWM_MAX_MODULATION * cc.vbus;
-    cc.id_pi = { .kp = 1.0f, .ki = 1.0f, .integrator = 0.0f, .out_min = -v_limit, .out_max = v_limit };
-    cc.iq_pi = { .kp = 1.0f, .ki = 1.0f, .integrator = 0.0f, .out_min = -v_limit, .out_max = v_limit };
+    cc.d_pi = { .kp = 1.0f, .ki = 1.0f, .integrator = 0.0f, .out_min = -v_limit, .out_max = v_limit };
+    cc.q_pi = { .kp = 1.0f, .ki = 1.0f, .integrator = 0.0f, .out_min = -v_limit, .out_max = v_limit };
 
     current_loop_reset(cc);
     current_loop_enabled = true;
@@ -129,7 +121,7 @@ inline void test_foc_closed_loop() {
     uint64_t total_cycles = 0;
     uint32_t last_log_us = 0;
     uint32_t last_cycles = DWT->CYCCNT;
-    constexpr uint32_t log_period_us = 500'000U;
+    constexpr uint32_t log_period_us = 10'000'000U;
 
     while (true) {
         uint32_t now_cycles = DWT->CYCCNT;
@@ -137,7 +129,7 @@ inline void test_foc_closed_loop() {
         last_cycles = now_cycles;
         float elapsed_s = (float)total_cycles / (float)SystemCoreClock;
         uint32_t now_us = (uint32_t)(elapsed_s * 1e6f);
-        cc.iq_ref = ramp_value(
+        cc.q_ref = ramp_linear(
             g_ramp.iq_start,
             g_ramp.iq_end,
             g_ramp.iq_ramp_duration_s,
@@ -156,10 +148,10 @@ inline void test_foc_closed_loop() {
 inline void log_foc_state(float elapsed_s) {
     char log_buffer[512];
     int len = snprintf(log_buffer, sizeof(log_buffer),
-        "theta:%f elapsed:%f ph_a:%d ph_b:%d a:%f b:%f iq_ref:%f d:%f q:%f vd:%f vq:%f mod:%f d_i:%f q_i:%f",
+        "theta:%f elapsed:%f ph_a:%d ph_b:%d [ia:%f ib:%f ic:%f] iq_ref:%fA [a:%f b:%f] [d:%f q:%f] vd:%f vq:%f mod:%f d_i:%f q_i:%f",
             encoder.electrical_angle, elapsed_s, cs.raw_a, cs.raw_b,
-                cs.ia, cs.ib, cc.iq_ref, cc.id, cc.iq, cc.vd, cc.vq,
-                    g_svm.modulation, cc.id_pi.integrator, cc.iq_pi.integrator);
+                cs.ia, cs.ib, cs.ic, cc.q_ref, pt.alpha, pt.beta, pt.d, pt.q, cc.vd, cc.vq,
+                    g_svm.modulation, cc.d_pi.integrator, cc.q_pi.integrator);
     if (len > 0) {
         if (len >= sizeof(log_buffer)) len = sizeof(log_buffer) - 1;
         LOG << std::string(log_buffer, len);

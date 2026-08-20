@@ -61,7 +61,7 @@ inline void calibrate_encoder(serial::i2c& bus, svpwm_t& svm) {
     svpwm_update(svm, 0.15f, 0.0f);
     mcl::sleep_ms(1000);
     encoder.zero_raw = average_encoder_raw(bus);
-    LOG << " encoder calibration zero raw = " << encoder.zero_raw;
+    LOG << " zero raw = " << encoder.zero_raw;
     // STEP 2:
     // Move the electrical field +90 degrees.
     // Valpha = 0
@@ -85,8 +85,9 @@ inline void calibrate_encoder(serial::i2c& bus, svpwm_t& svm) {
     } else {
         encoder.sign = 0;
     }
-    LOG << "encoder +90 raw = " << plus_90_raw
-        << " delta = " << delta << " sign = " << (int)encoder.sign;
+    LOG << " +90 raw = " << plus_90_raw;
+    LOG << " delta = " << delta;
+    LOG << " sign = " << (int)encoder.sign;
     // Return to electrical zero so the rotor is left in a known state.
     svpwm_update(svm, 0.15f, 0.0f);
     mcl::sleep_ms(1000);

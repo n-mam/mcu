@@ -6,19 +6,7 @@ constexpr float PI_OVER_3 = PI / 3.0f;
 constexpr float TWO_PI = 2.0f * PI;
 constexpr float SQRT3  = 1.73205080757f;
 
-struct ramp_profile_trap_t {
-    // Electrical frequency ramp [Hz]
-    float ef_start;
-    float ef_end;
-    // Trapezoidal PWM duty ramp [0..1]
-    float trap_duty_start;
-    float trap_duty_end;
-    // Ramp duration [seconds]
-    float duration_s;
-};
-
-// functions
-inline float ramp_value(float start, float end,
+inline float ramp_linear(float start, float end,
     float duration_s, float elapsed_s) {
         if (duration_s <= 0.0f)
             return end;

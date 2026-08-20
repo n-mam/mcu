@@ -1,5 +1,4 @@
 #include <memory>
-#include <foc/foc_common.h>
 
 inline void test_m200() {
     auto m200 = mcl::initialize_m200(PWM_PIN_MOTOR, PWM_FREQ_MOTOR);
@@ -329,6 +328,29 @@ inline void test_bldc_trapezoidal_pwm() {
     }
     apply_step_pwm({0,0,0,0,0,0}, 0.0f, tm);
     timer_stop(&tm);
+}
+
+struct ramp_profile_trap_t {
+    // Electrical frequency ramp [Hz]
+    float ef_start;
+    float ef_end;
+    // Trapezoidal PWM duty ramp [0..1]
+    float trap_duty_start;
+    float trap_duty_end;
+    // Ramp duration [seconds]
+    float duration_s;
+};
+
+inline float ramp_value(float start, float end,
+    float duration_s, float elapsed_s) {
+        if (duration_s <= 0.0f)
+            return end;
+        float frac = elapsed_s / duration_s;
+        if (frac <= 0.0f)
+            frac = 0.0f;
+        else if (frac >= 1.0f)
+            frac = 1.0f;
+        return start + frac * (end - start);
 }
 
 // Complementary PWM on LS and HS with harware dead time insertion
