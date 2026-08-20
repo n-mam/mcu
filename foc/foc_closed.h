@@ -5,14 +5,7 @@
 #include <foc/current.h>
 #include <foc/foc_common.h>
 
-struct ramp_foc_t {
-    float iq_start;
-    float iq_end;
-    float iq_ramp_duration_s;
-};
-
 inline svpwm_t g_svm;
-inline ramp_foc_t g_ramp;
 
 inline volatile bool current_loop_enabled = false;
 inline volatile bool encoder_calibration_hold = true;
@@ -93,8 +86,8 @@ inline void test_foc_closed_loop() {
     timer_start(&tm);
     while (!current_bias_calibration_complete(CURRENT_BIAS_SAMPLES)) { __WFI(); }
     current_bias_calibration_finish();
-    LOG << " current bias A: " << cs.bias_a
-            << " volts, B: " << cs.bias_b << " volts";
+    LOG << " current bias A: " << cs.bias_a << "v";
+    LOG << " current bias B: " << cs.bias_b << "v";
 
     // Encoder electrical-zero calibration
     serial::i2c bus(3, 10, 400'000, I2C2, GPIOB);
@@ -107,21 +100,17 @@ inline void test_foc_closed_loop() {
     // v_limit = 9.49 / sqrt(3) ≈ 5.48 V
     // so each PI can request up to ±5.48 V.
     const float v_limit = SVPWM_MAX_MODULATION * cc.vbus;
-    cc.d_pi = { .kp = 1.0f, .ki = 1.0f, .integrator = 0.0f, .out_min = -v_limit, .out_max = v_limit };
-    cc.q_pi = { .kp = 1.0f, .ki = 1.0f, .integrator = 0.0f, .out_min = -v_limit, .out_max = v_limit };
-
-    current_loop_reset(cc);
-    current_loop_enabled = true;
-
-    // soft-start the torque command
-    g_ramp.iq_start = 0.0f;
-    g_ramp.iq_end = 0.10f;
-    g_ramp.iq_ramp_duration_s = 8.0f;
+    cc.d_pi = { .kp = 5.0f, .ki = 0.0f, .integrator = 0.0f, .out_min = -v_limit, .out_max = v_limit };
+    cc.q_pi = { .kp = 5.0f, .ki = 0.2f, .integrator = 0.0f, .out_min = -v_limit, .out_max = v_limit };
 
     uint64_t total_cycles = 0;
     uint32_t last_log_us = 0;
     uint32_t last_cycles = DWT->CYCCNT;
-    constexpr uint32_t log_period_us = 10'000'000U;
+    constexpr uint32_t log_period_us = 80'000U;
+
+    //mcl::delay_ms(5000);
+    current_loop_reset(cc);
+    current_loop_enabled = true;
 
     while (true) {
         uint32_t now_cycles = DWT->CYCCNT;
@@ -129,17 +118,13 @@ inline void test_foc_closed_loop() {
         last_cycles = now_cycles;
         float elapsed_s = (float)total_cycles / (float)SystemCoreClock;
         uint32_t now_us = (uint32_t)(elapsed_s * 1e6f);
-        cc.q_ref = ramp_linear(
-            g_ramp.iq_start,
-            g_ramp.iq_end,
-            g_ramp.iq_ramp_duration_s,
-            elapsed_s);
+        cc.q_ref = 0.10f;
         encoder_read_and_update_angles(bus);
         // log once every 10 seconds
-        if ((uint32_t)(now_us - last_log_us) >= log_period_us) {
+        //if ((uint32_t)(now_us - last_log_us) >= log_period_us) {
             last_log_us = now_us;
             log_foc_state(elapsed_s);
-        }
+        //}
     }
 
     timer_stop(&tm);
