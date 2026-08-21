@@ -102,7 +102,7 @@ inline void test_foc_closed_loop() {
     // so each PI can request up to ±5.48 V.
     const float v_limit = SVPWM_MAX_MODULATION * cc.vbus;
     cc.d_pi = { .kp = 5.0f, .ki = 0.0f, .integrator = 0.0f, .out_min = -v_limit, .out_max = v_limit };
-    cc.q_pi = { .kp = 5.0f, .ki = 0.5f, .integrator = 0.0f, .out_min = -v_limit, .out_max = v_limit };
+    cc.q_pi = { .kp = 5.0f, .ki = 0.6f, .integrator = 0.0f, .out_min = -v_limit, .out_max = v_limit };
 
     uint64_t total_cycles = 0;
     uint32_t last_log_us = 0;
