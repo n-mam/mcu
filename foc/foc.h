@@ -1,9 +1,9 @@
-#ifndef FOC_CLOSED_H
-#define FOC_CLOSED_H
+#ifndef FOC_H
+#define FOC_H
 
 #include <foc/encoder.h>
 #include <foc/current.h>
-#include <foc/foc_common.h>
+#include <foc/svpwm.h>
 
 inline svpwm_t g_svm;
 
@@ -45,7 +45,7 @@ inline void test_foc_closed_loop() {
     tm.interrupt_callback = nullptr;
     tm.mode = cms::ca1;
     timer_init(&tm);
-    timer_set_frequency(&tm, 20000);
+    timer_set_frequency(&tm, 20'000);
     static const uint8_t hs[] = {8, 9, 10};
     static const uint8_t ls[] = {13, 14, 15};
     timer_init_gpio(GPIOA, hs, 3, 1);
@@ -71,7 +71,8 @@ inline void test_foc_closed_loop() {
     g_svm.timer = &tm;
     current_loop_enabled = false;
     encoder_calibration_hold = true;
-    // ZERO-CURRENT ADC BIAS CALIBRATION
+
+    // Zero current ADC bias calibration
     constexpr uint32_t CURRENT_BIAS_SAMPLES = 1000;
     // No average motor voltage.
     // Keep all three PWM phases at 50% duty while the ADC
@@ -101,13 +102,14 @@ inline void test_foc_closed_loop() {
     // so each PI can request up to ±5.48 V.
     const float v_limit = SVPWM_MAX_MODULATION * cc.vbus;
     cc.d_pi = { .kp = 5.0f, .ki = 0.0f, .integrator = 0.0f, .out_min = -v_limit, .out_max = v_limit };
-    cc.q_pi = { .kp = 5.0f, .ki = 0.2f, .integrator = 0.0f, .out_min = -v_limit, .out_max = v_limit };
+    cc.q_pi = { .kp = 5.0f, .ki = 0.5f, .integrator = 0.0f, .out_min = -v_limit, .out_max = v_limit };
 
     uint64_t total_cycles = 0;
     uint32_t last_log_us = 0;
     uint32_t last_cycles = DWT->CYCCNT;
     constexpr uint32_t log_period_us = 80'000U;
 
+    // manual hold delay
     //mcl::delay_ms(5000);
     current_loop_reset(cc);
     current_loop_enabled = true;

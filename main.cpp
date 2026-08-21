@@ -1,6 +1,6 @@
 #include <sns/sns.h>
-#include <foc/foc_open.h>
-#include <foc/foc_closed.h>
+#include <foc/vfd.h>
+#include <foc/foc.h>
 
 static constexpr
     std::pair<int, void(*)()>
@@ -27,7 +27,7 @@ static constexpr
             {20,  test_mpu6050},
             {21,  test_mahony},
             {22,  adc_tim_dma_test},
-            {23,  test_foc_open_loop},
+            {23,  test_vf_drive},
             {24,  test_foc_closed_loop},
             {25,  test_as5600},
             #if defined(PICO)
