@@ -25,7 +25,8 @@ DEFAULT_BAUD = 115200
 PATTERN = re.compile(
     r"elapsed:([-\d.]+).*?"
     r"iq_ref:([-\d.]+)A.*?"
-    r"\[d:([-\d.]+)\s+q:([-\d.]+)\]"
+    r"\[d:([-\d.]+)\s+q:([-\d.]+)\].*?"
+    r"mod:([-\d.]+)"
 )
 
 # =========================================================
@@ -40,8 +41,9 @@ def parse_line(line):
     elapsed = float(match.group(1))
     iq_ref = float(match.group(2))
     q = float(match.group(4))
+    modulation = float(match.group(5))
 
-    return elapsed, iq_ref, q
+    return elapsed, iq_ref, q, modulation
 # =========================================================
 # FILE MODE
 # =========================================================
@@ -59,7 +61,7 @@ def read_file(filename):
             if result is None:
                 continue
 
-            t, sp, pv = result
+            t, sp, pv, mod = result
 
             time_data.append(t)
             setpoint.append(sp)
@@ -151,6 +153,24 @@ def live_serial(port, baud):
 
     fig, ax = plt.subplots(figsize=(12, 6))
 
+    latest_modulation = [0.0]
+
+    mod_text = ax.text(
+        0.02,
+        0.95,
+        "Modulation: 0.000",
+        transform=ax.transAxes,
+        fontsize=14,
+        fontweight="bold",
+        color="green",
+        verticalalignment="top",
+        bbox=dict(
+            boxstyle="round",
+            facecolor="white",
+            alpha=0.8
+        )
+    )
+
     line_sp, = ax.plot(
         [],
         [],
@@ -169,7 +189,7 @@ def live_serial(port, baud):
 
     ax.set_xlabel("Time [s]")
     ax.set_ylabel("q-axis Current [A]")
-    ax.set_ylim(0, 0.18)
+    ax.set_ylim(0, 0.5)
 
     ax.set_title(
         f"FOC q-axis Current PI Control - {port}"
@@ -213,8 +233,8 @@ def live_serial(port, baud):
             if result is None:
                 continue
 
-            t, sp, pv = result
-
+            t, sp, pv, mod = result
+            latest_modulation[0] = mod
             time_data.append(t)
             setpoint.append(sp)
 
@@ -231,6 +251,10 @@ def live_serial(port, baud):
     def update(frame):
 
         read_serial()
+
+        mod_text.set_text(
+            f"Modulation: {latest_modulation[0]:.3f}"
+        )
 
         if not time_data:
             return line_sp, line_pv

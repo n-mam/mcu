@@ -1,4 +1,4 @@
-### HMC5883L/BNO055/BNO085 header-only library for pico c/c++ sdk
+### HMC5883L/BNO055/BNO085 header-only library
 
 - Suported magnetometers HMC5883L(mag), BNO055 (9dof IMU), BNO085 (fused absolute rotation quaternion)
 - The original bosch sensortec driver for bno055 is used as is (under imu/bno055 folder)
@@ -16,20 +16,16 @@
 - The app directory has a c++ proxy app that reads messages off pico's COM port (usb) connection and publishes them over a websocket server
 - App directory also has a three.js visualizer that maintains a websocket connection to the c++ proxy app.
 - The axis helper gets rotate around the z axis based on the yaw reported by the IMU over USB/UART.
+- MPU6050 + HMC5883L test streams data over uart which can then be used for testing mahony absolute orientation filter (vtk visualizaion in offset repo)
+- Dont use the app folder; that has very old code; any desktop based telemetry/visualization would be in the offset repo
 
-c++ proxy app
+### FOC - torque control
 ```
-vcpkg install websocketpp
-cmake -DCMAKE_TOOLCHAIN_FILE=D:/vcpkg/scripts/buildsystems/vcpkg.cmake ..
-cmake --build . --config Debug
-app.exe \\.\COM4
-```
-
-three.js visualizer
-```
-npm install http-server -g
-http-server -p 1234 --cors
-launch the visualizer url http://localhost:1234/
+setup
+- inline current sensing using 2, INA240A 50v/v gain CSA's
+- TMC6300 combined HS/LS gate driver + power stage
+- DfRobot 2804 3-Phase Brushless DC Motor 12V 2600RPM 300g/cm
+- STM32F446RE
 ```
 
 ```

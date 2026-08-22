@@ -3,6 +3,8 @@
 
 // DFRobot 2804, 12N/14P
 constexpr uint32_t POLE_PAIRS = 7;
+// tune: lower = smoother but more lag
+constexpr float VELOCITY_FILTER_ALPHA = 0.2f;
 
 struct encoder_state_t {
     // we want to determine two things
@@ -17,6 +19,8 @@ struct encoder_state_t {
     float electrical_angle = 0.0f;
     float mechanical_velocity = 0.0f;
     float electrical_velocity = 0.0f;
+    uint32_t last_update_cycles = 0;
+    bool velocity_valid = false;
 };
 
 inline encoder_state_t encoder;
@@ -126,11 +130,25 @@ inline float encoder_to_electrical_angle(uint16_t raw,
 
 inline void encoder_read_and_update_angles(serial::i2c& bus) {
     encoder.raw = as5600_read_raw_angle(bus);
-    encoder.electrical_angle =
-        encoder_to_electrical_angle(
-            encoder.raw,
-            encoder.zero_raw,
-            encoder.sign);
+    float new_angle = encoder_to_electrical_angle(
+            encoder.raw, encoder.zero_raw, encoder.sign);
+    uint32_t now_cycles = DWT->CYCCNT;
+    if (encoder.velocity_valid) {
+        uint32_t delta_cycles = now_cycles - encoder.last_update_cycles;
+        float dt = (float)delta_cycles / (float)SystemCoreClock;
+        if (dt > 1e-6f) {
+            float dtheta = new_angle - encoder.electrical_angle;
+            if (dtheta > PI) dtheta -= TWO_PI;
+            else if (dtheta < -PI) dtheta += TWO_PI;
+            float raw_velocity = dtheta / dt;
+            encoder.electrical_velocity +=
+                VELOCITY_FILTER_ALPHA * (raw_velocity - encoder.electrical_velocity);
+        }
+    } else {
+        encoder.velocity_valid = true;
+    }
+    encoder.last_update_cycles = now_cycles;
+    encoder.electrical_angle = new_angle;
 }
 
 inline void test_as5600() {

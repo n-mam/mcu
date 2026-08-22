@@ -34,7 +34,8 @@ inline void adc_callback_injected(uint16_t raw_a, uint16_t raw_b) {
     // Current control
     if (!current_loop_enabled) return;
     constexpr float CURRENT_LOOP_DT = 1.0f / 20'000.0f;
-    foc_current_update(cc, cs, encoder.electrical_angle, CURRENT_LOOP_DT);
+    foc_current_update(cc, cs, encoder.electrical_angle,
+        encoder.electrical_velocity, CURRENT_LOOP_DT);
     // voltage to PWM
     foc_voltage_apply(cc, encoder.electrical_angle);
 }
@@ -101,8 +102,8 @@ inline void test_foc_closed_loop() {
     // v_limit = 9.49 / sqrt(3) ≈ 5.48 V
     // so each PI can request up to ±5.48 V.
     const float v_limit = SVPWM_MAX_MODULATION * cc.vbus;
-    cc.d_pi = { .kp = 5.0f, .ki = 0.0f, .integrator = 0.0f, .out_min = -v_limit, .out_max = v_limit };
-    cc.q_pi = { .kp = 5.0f, .ki = 0.6f, .integrator = 0.0f, .out_min = -v_limit, .out_max = v_limit };
+    cc.d_pi = { .kp = 5.0f, .ki = 0.5f, .integrator = 0.0f, .out_min = -v_limit, .out_max = v_limit };
+    cc.q_pi = { .kp = 5.0f, .ki = 3.0f, .integrator = 0.0f, .out_min = -v_limit, .out_max = v_limit };
 
     uint64_t total_cycles = 0;
     uint32_t last_log_us = 0;
@@ -120,7 +121,7 @@ inline void test_foc_closed_loop() {
         last_cycles = now_cycles;
         float elapsed_s = (float)total_cycles / (float)SystemCoreClock;
         uint32_t now_us = (uint32_t)(elapsed_s * 1e6f);
-        cc.q_ref = 0.10f;
+        cc.q_ref = 0.40f;
         encoder_read_and_update_angles(bus);
         // log once every 10 seconds
         //if ((uint32_t)(now_us - last_log_us) >= log_period_us) {

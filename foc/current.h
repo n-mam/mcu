@@ -6,6 +6,17 @@ constexpr float CSA_GAIN   = 50.0f;      // V/V, INA240A2
 constexpr float R_SHUNT    = 0.010f;     // 10 mill ohms
 constexpr float ADC_MAXCNT = 4095.0f;
 
+constexpr float MOTOR_INDUCTANCE_H = 0.00086f;   // L, henries, from datasheet
+constexpr float MOTOR_KV = 220.0f;               // RPM per volt, from datasheet
+// Ke (V per mechanical rad/s) derived from KV, then divided by pole pairs
+// to get lambda (V per ELECTRICAL rad/s) -- electrical_velocity is
+// electrical rad/s, so this is the constant that pairs with it directly.
+// Treat this as a starting estimate; verify empirically if possible
+// (spin open-loop at known speed, measure induced phase voltage,
+// lambda = V_peak / electrical_velocity).
+constexpr float MOTOR_KE = 1.0f / (MOTOR_KV * (TWO_PI / 60.0f));
+constexpr float MOTOR_LAMBDA = MOTOR_KE / (float)POLE_PAIRS;
+
 // PI controller
 struct pi_controller_t {
     float kp = 0.0f;
@@ -39,21 +50,20 @@ struct phase_transforms_t {
 };
 
 struct current_sense_t {
-
+    // Measured; in amps
     float ia = 0.0f;
     float ib = 0.0f;
+    // Derived; from ia, ib
     float ic = 0.0f;
-
+    // Raw ADC values
     uint16_t raw_a = 0;
     uint16_t raw_b = 0;
-
+    // CSA zero current bias, clibrated
     float bias_a = 0.0f;
     float bias_b = 0.0f;
-
     uint64_t calibration_sum_a = 0;
     uint64_t calibration_sum_b = 0;
     uint32_t calibration_samples = 0;
-
     bool calibrating = false;
 };
 
@@ -222,8 +232,8 @@ inline void current_sense_update(
     sense.ic = -(sense.ia + sense.ib);
 }
 
-inline void foc_current_update(current_control_t& control,
-        current_sense_t& sense, float electrical_angle, float dt) {
+inline void foc_current_update(current_control_t& control, current_sense_t& sense,
+        float electrical_angle, float electrical_velocity, float dt) {
     // phase abc to alpha/beta
     clarke_transform(sense.ia, sense.ib, sense.ic);
     // alpha/beta to d/q
@@ -232,8 +242,19 @@ inline void foc_current_update(current_control_t& control,
     const float d_error = control.d_ref - pt.d;
     const float q_error = control.q_ref - pt.q;
     // Current PI controllers.
-    float vd = pi_update(control.d_pi, d_error, dt);
-    float vq = pi_update(control.q_pi, q_error, dt);
+    float vd_pi = pi_update(control.d_pi, d_error, dt);
+    float vq_pi = pi_update(control.q_pi, q_error, dt);
+
+    // Feedforward: decoupling + back-EMF compensation.
+    // These are recomputed fresh each cycle -- no integrator state,
+    // so anti-windup scaling below only needs to touch the PI portion.
+    float vd_ff = -electrical_velocity * MOTOR_INDUCTANCE_H * pt.q;
+    float vq_ff =  electrical_velocity * MOTOR_INDUCTANCE_H * pt.d
+                 + electrical_velocity * MOTOR_LAMBDA;
+
+    float vd = vd_pi + vd_ff;
+    float vq = vq_pi + vq_ff;
+
     // Limit voltage vector to linear SVPWM range.
     const float v_limit = SVPWM_MAX_MODULATION * control.vbus;
     const float v_mag = sqrtf(vd * vd + vq * vq);
