@@ -21,6 +21,7 @@ inline void foc_voltage_apply(current_control_t& cc, float electrical_angle) {
 }
 
 inline void adc_callback_injected(uint16_t raw_a, uint16_t raw_b) {
+    static uint8_t speed_loop_divider = 0;
     // zero-current calibration
     if (cs.calibrating) {
         cs.calibration_sum_a += raw_a;
@@ -29,16 +30,22 @@ inline void adc_callback_injected(uint16_t raw_a, uint16_t raw_b) {
         return;
     }
     // Don't run FOC during encoder calibration
-    if (encoder_calibration_hold) return;
+    if (encoder_calibration_hold || !current_loop_enabled) return;
+    // Current control
     // ADC counts to phase currents
     current_sense_update(cs, raw_a, raw_b);
-    // Current control
-    if (!current_loop_enabled) return;
+    // run the speed update first
+    if (++speed_loop_divider >= 20) {
+        speed_loop_divider = 0;
+        speed_control_update(
+            sc, encoder.mechanical_velocity, 1.0f / 1000.0f);
+    }
     constexpr float CURRENT_LOOP_DT = 1.0f / 20'000.0f;
-    foc_current_update(cc, cs, encoder.electrical_angle,
-        encoder.electrical_velocity, CURRENT_LOOP_DT);
+    const float theta = encoder.electrical_angle;
+    const float omega = encoder.electrical_velocity;
+    foc_current_update(cc, cs, theta, omega, CURRENT_LOOP_DT);
     // voltage to PWM
-    foc_voltage_apply(cc, encoder.electrical_angle);
+    foc_voltage_apply(cc, theta);
 }
 
 inline void test_foc_closed_loop() {
@@ -111,10 +118,10 @@ inline void test_foc_closed_loop() {
     uint64_t total_cycles = 0;
     uint32_t last_log_us = 0;
     uint32_t last_cycles = DWT->CYCCNT;
-    uint32_t last_speed_update_us = 0;
-    constexpr uint32_t log_period_us = 80'000U;
+    constexpr uint32_t log_period_us = 100'000U;
+
     constexpr float STEP_TIME_S = 2.0f;      // let it settle at zero first
-    constexpr float STEP_TARGET = 2.0f;     // mechanical rad/s -- pick something modest
+    constexpr float STEP_TARGET = 0.24f;     // mechanical rad/s -- works: 0.25, 0.5
 
     // manual hold delay
     //mcl::delay_ms(5000);
@@ -130,20 +137,15 @@ inline void test_foc_closed_loop() {
         uint32_t now_us = (uint32_t)(elapsed_s * 1e6f);
 
         //cc.q_ref = 0.1f;
-        sc.speed_ref = (elapsed_s < STEP_TIME_S) ? 0.0f : STEP_TARGET;  // the step
+        sc.speed_ref = (elapsed_s < STEP_TIME_S) ? 0.0f : STEP_TARGET;
 
         encoder_read_and_update_angles(bus);
 
-        if ((uint32_t)(now_us - last_speed_update_us) >= SPEED_LOOP_PERIOD_US) {
-            float speed_dt = (float)(now_us - last_speed_update_us) * 1e-6f;
-            last_speed_update_us = now_us;
-            speed_control_update(sc, encoder.mechanical_velocity, speed_dt);
-        }
         // log once every 10 seconds
-        //if ((uint32_t)(now_us - last_log_us) >= log_period_us) {
+        if ((uint32_t)(now_us - last_log_us) >= log_period_us) {
             last_log_us = now_us;
             log_foc_state(elapsed_s);
-        //}
+        }
     }
 
     timer_stop(&tm);

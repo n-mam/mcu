@@ -17,7 +17,6 @@ inline void speed_loop_reset(speed_control_t& s) {
     pi_reset(s.pi);
 }
 
-
 inline void speed_control_update(speed_control_t& s,
         float mechanical_velocity, float dt) {
     s.speed_measured = mechanical_velocity;

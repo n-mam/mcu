@@ -3,8 +3,12 @@
 
 // DFRobot 2804, 12N/14P
 constexpr uint32_t POLE_PAIRS = 7;
+constexpr float AS5600_COUNTS = 4096.0f;
 // tune: lower = smoother but more lag
 constexpr float VELOCITY_FILTER_ALPHA = 0.2f;
+constexpr uint32_t VELOCITY_ESTIMATOR_PERIOD_US = 5'000U;
+constexpr float AS5600_COUNT_TO_RAD = TWO_PI / AS5600_COUNTS;
+constexpr float VELOCITY_ESTIMATOR_DT_MIN = VELOCITY_ESTIMATOR_PERIOD_US * 1e-6f;
 
 struct encoder_state_t {
     // we want to determine two things
@@ -15,11 +19,14 @@ struct encoder_state_t {
     int8_t sign;
     uint16_t zero_raw;
     uint16_t raw;
-    float mechanical_angle = 0.0f;
     float electrical_angle = 0.0f;
     float mechanical_velocity = 0.0f;
     float electrical_velocity = 0.0f;
-    uint32_t last_update_cycles = 0;
+    // Velocity estimator state.
+    // Position is sampled continuously, but velocity is computed
+    // over a longer baseline to reduce 12-bit encoder quantization noise.
+    uint16_t velocity_raw = 0;
+    uint32_t velocity_cycles = 0;
     bool velocity_valid = false;
 };
 
@@ -129,27 +136,60 @@ inline float encoder_to_electrical_angle(uint16_t raw,
 }
 
 inline void encoder_read_and_update_angles(serial::i2c& bus) {
-    encoder.raw = as5600_read_raw_angle(bus);
-    float new_angle = encoder_to_electrical_angle(
-            encoder.raw, encoder.zero_raw, encoder.sign);
-    uint32_t now_cycles = DWT->CYCCNT;
-    if (encoder.velocity_valid) {
-        uint32_t delta_cycles = now_cycles - encoder.last_update_cycles;
-        float dt = (float)delta_cycles / (float)SystemCoreClock;
-        if (dt > 1e-6f) {
-            float dtheta = new_angle - encoder.electrical_angle;
-            if (dtheta > PI) dtheta -= TWO_PI;
-            else if (dtheta < -PI) dtheta += TWO_PI;
-            float raw_velocity = dtheta / dt;
-            encoder.electrical_velocity +=
-                VELOCITY_FILTER_ALPHA * (raw_velocity - encoder.electrical_velocity);
-            encoder.mechanical_velocity = encoder.electrical_velocity / (float)POLE_PAIRS;
-        }
-    } else {
+
+    const uint16_t raw = as5600_read_raw_angle(bus);
+    const uint32_t now_cycles = DWT->CYCCNT;
+
+    encoder.raw = raw;
+    // Absolute electrical position for FOC.
+    encoder.electrical_angle =
+        encoder_to_electrical_angle(
+            raw,
+            encoder.zero_raw,
+            encoder.sign);
+
+    // Initialize velocity estimator.
+    if (!encoder.velocity_valid) {
+        encoder.velocity_raw = raw;
+        encoder.velocity_cycles = now_cycles;
         encoder.velocity_valid = true;
+        encoder.mechanical_velocity = 0.0f;
+        encoder.electrical_velocity = 0.0f;
+        return;
     }
-    encoder.last_update_cycles = now_cycles;
-    encoder.electrical_angle = new_angle;
+
+    const uint32_t delta_cycles =
+        now_cycles - encoder.velocity_cycles;
+
+    const float dt =
+        static_cast<float>(delta_cycles) /
+            static_cast<float>(SystemCoreClock);
+
+    if (dt < VELOCITY_ESTIMATOR_DT_MIN) return;
+
+    const int32_t raw_delta =
+        encoder_signed_wrap_delta(
+            encoder.velocity_raw, raw);
+
+    const float mechanical_delta =
+        static_cast<float>(raw_delta) *
+        AS5600_COUNT_TO_RAD *
+        static_cast<float>(encoder.sign);
+
+    const float raw_mechanical_velocity =
+        mechanical_delta / dt;
+
+    encoder.mechanical_velocity +=
+        VELOCITY_FILTER_ALPHA *
+        (raw_mechanical_velocity -
+         encoder.mechanical_velocity);
+
+    encoder.electrical_velocity =
+        encoder.mechanical_velocity *
+        static_cast<float>(POLE_PAIRS);
+
+    encoder.velocity_raw = raw;
+    encoder.velocity_cycles = now_cycles;
 }
 
 inline void test_as5600() {
