@@ -4,6 +4,7 @@
 #include <foc/encoder.h>
 #include <foc/current.h>
 #include <foc/svpwm.h>
+#include <foc/speed.h>
 
 inline svpwm_t g_svm;
 
@@ -104,15 +105,21 @@ inline void test_foc_closed_loop() {
     const float v_limit = SVPWM_MAX_MODULATION * cc.vbus;
     cc.d_pi = { .kp = 5.0f, .ki = 0.5f, .integrator = 0.0f, .out_min = -v_limit, .out_max = v_limit };
     cc.q_pi = { .kp = 5.0f, .ki = 3.0f, .integrator = 0.0f, .out_min = -v_limit, .out_max = v_limit };
+    // speed PI
+    sc.pi = { .kp = 0.1f, .ki = 0.01f, .integrator = 0.0f, .out_min = -cc.current_limit, .out_max = cc.current_limit };
 
     uint64_t total_cycles = 0;
     uint32_t last_log_us = 0;
     uint32_t last_cycles = DWT->CYCCNT;
+    uint32_t last_speed_update_us = 0;
     constexpr uint32_t log_period_us = 80'000U;
+    constexpr float STEP_TIME_S = 2.0f;      // let it settle at zero first
+    constexpr float STEP_TARGET = 2.0f;     // mechanical rad/s -- pick something modest
 
     // manual hold delay
     //mcl::delay_ms(5000);
     current_loop_reset(cc);
+    speed_loop_reset(sc);
     current_loop_enabled = true;
 
     while (true) {
@@ -121,8 +128,17 @@ inline void test_foc_closed_loop() {
         last_cycles = now_cycles;
         float elapsed_s = (float)total_cycles / (float)SystemCoreClock;
         uint32_t now_us = (uint32_t)(elapsed_s * 1e6f);
-        cc.q_ref = 0.40f;
+
+        //cc.q_ref = 0.1f;
+        sc.speed_ref = (elapsed_s < STEP_TIME_S) ? 0.0f : STEP_TARGET;  // the step
+
         encoder_read_and_update_angles(bus);
+
+        if ((uint32_t)(now_us - last_speed_update_us) >= SPEED_LOOP_PERIOD_US) {
+            float speed_dt = (float)(now_us - last_speed_update_us) * 1e-6f;
+            last_speed_update_us = now_us;
+            speed_control_update(sc, encoder.mechanical_velocity, speed_dt);
+        }
         // log once every 10 seconds
         //if ((uint32_t)(now_us - last_log_us) >= log_period_us) {
             last_log_us = now_us;
@@ -136,10 +152,12 @@ inline void test_foc_closed_loop() {
 inline void log_foc_state(float elapsed_s) {
     char log_buffer[512];
     int len = snprintf(log_buffer, sizeof(log_buffer),
-        "theta:%f elapsed:%f ph_a:%d ph_b:%d [ia:%f ib:%f ic:%f] iq_ref:%fA [a:%f b:%f] [d:%f q:%f] vd:%f vq:%f mod:%f d_i:%f q_i:%f",
-            encoder.electrical_angle, elapsed_s, cs.raw_a, cs.raw_b,
-                cs.ia, cs.ib, cs.ic, cc.q_ref, pt.alpha, pt.beta, pt.d, pt.q, cc.vd, cc.vq,
-                    g_svm.modulation, cc.d_pi.integrator, cc.q_pi.integrator);
+        "theta:%f elapsed:%f speed_ref:%f speed_meas:%f "
+        "[ia:%f ib:%f ic:%f] q_ref:%fA [d:%f q:%f] vd:%f vq:%f mod:%f d_i:%f q_i:%f s_i:%f",
+            encoder.electrical_angle, elapsed_s, sc.speed_ref, sc.speed_measured,
+                cs.ia, cs.ib, cs.ic, cc.q_ref, pt.d, pt.q, cc.vd, cc.vq,
+                    g_svm.modulation, cc.d_pi.integrator, cc.q_pi.integrator,
+                        sc.pi.integrator);
     if (len > 0) {
         if (len >= sizeof(log_buffer)) len = sizeof(log_buffer) - 1;
         LOG << std::string(log_buffer, len);

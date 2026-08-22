@@ -143,6 +143,7 @@ inline void encoder_read_and_update_angles(serial::i2c& bus) {
             float raw_velocity = dtheta / dt;
             encoder.electrical_velocity +=
                 VELOCITY_FILTER_ALPHA * (raw_velocity - encoder.electrical_velocity);
+            encoder.mechanical_velocity = encoder.electrical_velocity / (float)POLE_PAIRS;
         }
     } else {
         encoder.velocity_valid = true;
