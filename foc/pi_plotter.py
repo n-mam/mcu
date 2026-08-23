@@ -24,7 +24,7 @@ DEFAULT_BAUD = 115200
 # [d:0.063280 q:0.130589]
 PATTERN = re.compile(
     r"elapsed:([-\d.]+).*?"
-    r"iq_ref:([-\d.]+)A.*?"
+    r"q_ref:([-\d.]+)A.*?"
     r"\[d:([-\d.]+)\s+q:([-\d.]+)\].*?"
     r"mod:([-\d.]+)"
 )

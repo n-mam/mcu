@@ -92,6 +92,8 @@ inline void current_bias_calibration_finish() {
     const float avg_b = (float)cs.calibration_sum_b / (float)n;
     cs.bias_a = (avg_a / ADC_MAXCNT) * ADC_VREF;
     cs.bias_b = (avg_b / ADC_MAXCNT) * ADC_VREF;
+    LOG << " current bias A: " << cs.bias_a << "v";
+    LOG << " current bias B: " << cs.bias_b << "v";
     cs.calibrating = false;
 }
 
@@ -218,7 +220,7 @@ inline void current_loop_reset(current_control_t &cc) {
 
 // current_sense_update()
 //     ADC counts to amps
-// foc_current_update()
+// current_control_update()
 //     amps to dq to PI to voltage
 // svpwm_apply()
 //     voltage vector to PWM
@@ -232,7 +234,7 @@ inline void current_sense_update(
     sense.ic = -(sense.ia + sense.ib);
 }
 
-inline void foc_current_update(current_control_t& control, current_sense_t& sense,
+inline void current_control_update(current_control_t& control, current_sense_t& sense,
         float electrical_angle, float electrical_velocity, float dt) {
     // phase abc to alpha/beta
     clarke_transform(sense.ia, sense.ib, sense.ic);
@@ -252,8 +254,8 @@ inline void foc_current_update(current_control_t& control, current_sense_t& sens
     float vq_ff =  electrical_velocity * MOTOR_INDUCTANCE_H * pt.d
                  + electrical_velocity * MOTOR_LAMBDA;
 
-    float vd = vd_pi + vd_ff;
-    float vq = vq_pi + vq_ff;
+    float vd = vd_pi ; //+ vd_ff;
+    float vq = vq_pi ; //+ vq_ff;
 
     // Limit voltage vector to linear SVPWM range.
     const float v_limit = SVPWM_MAX_MODULATION * control.vbus;

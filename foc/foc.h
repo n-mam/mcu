@@ -20,7 +20,7 @@ inline void foc_voltage_apply(current_control_t& cc, float electrical_angle) {
     svpwm_update(g_svm, pt.v_alpha, pt.v_beta);
 }
 
-inline void adc_callback_injected(uint16_t raw_a, uint16_t raw_b) {
+inline void adc_injected_callback(uint16_t raw_a, uint16_t raw_b) {
     static uint8_t speed_loop_divider = 0;
     // zero-current calibration
     if (cs.calibrating) {
@@ -34,18 +34,32 @@ inline void adc_callback_injected(uint16_t raw_a, uint16_t raw_b) {
     // Current control
     // ADC counts to phase currents
     current_sense_update(cs, raw_a, raw_b);
+
+    // Time elapsed since the last AS5600 encoder sample.
+    float encoder_age =
+        (float)(DWT->CYCCNT - encoder.last_update_cycles)
+        / (float)SystemCoreClock;
+
+    // Predict the electrical angle forward from the last encoder sample.
+    float electrical_angle = encoder.electrical_angle +
+        encoder.electrical_velocity * encoder_age;
+
+    // Wrap to [0, TWO_PI)
+    electrical_angle = fmodf(electrical_angle, TWO_PI);
+
+    if (electrical_angle < 0.0f) {
+        electrical_angle += TWO_PI;
+    }
+
     // run the speed update first
     if (++speed_loop_divider >= 20) {
         speed_loop_divider = 0;
-        speed_control_update(
-            sc, encoder.mechanical_velocity, 1.0f / 1000.0f);
+        //speed_control_update(sc, encoder.mechanical_velocity, 1.0f / 1000.0f);
     }
     constexpr float CURRENT_LOOP_DT = 1.0f / 20'000.0f;
-    const float theta = encoder.electrical_angle;
-    const float omega = encoder.electrical_velocity;
-    foc_current_update(cc, cs, theta, omega, CURRENT_LOOP_DT);
+    current_control_update(cc, cs, electrical_angle, encoder.electrical_velocity, CURRENT_LOOP_DT);
     // voltage to PWM
-    foc_voltage_apply(cc, theta);
+    foc_voltage_apply(cc, electrical_angle);
 }
 
 inline void test_foc_closed_loop() {
@@ -74,7 +88,7 @@ inline void test_foc_closed_loop() {
     ADC_Config_t cfg{};
     cfg._instance = ADC1;
     cfg._interrupt_callback_regular = nullptr;
-    cfg._interrupt_callback_injected = adc_callback_injected;
+    cfg._interrupt_callback_injected = adc_injected_callback;
     adc_set_config(&cfg);
 
     g_svm.timer = &tm;
@@ -96,8 +110,6 @@ inline void test_foc_closed_loop() {
     timer_start(&tm);
     while (!current_bias_calibration_complete(CURRENT_BIAS_SAMPLES)) { __WFI(); }
     current_bias_calibration_finish();
-    LOG << " current bias A: " << cs.bias_a << "v";
-    LOG << " current bias B: " << cs.bias_b << "v";
 
     // Encoder electrical-zero calibration
     serial::i2c bus(3, 10, 400'000, I2C2, GPIOB);
@@ -110,18 +122,14 @@ inline void test_foc_closed_loop() {
     // v_limit = 9.49 / sqrt(3) ≈ 5.48 V
     // so each PI can request up to ±5.48 V.
     const float v_limit = SVPWM_MAX_MODULATION * cc.vbus;
-    cc.d_pi = { .kp = 5.0f, .ki = 0.5f, .integrator = 0.0f, .out_min = -v_limit, .out_max = v_limit };
-    cc.q_pi = { .kp = 5.0f, .ki = 3.0f, .integrator = 0.0f, .out_min = -v_limit, .out_max = v_limit };
-    // speed PI
+    cc.d_pi = { .kp = 0.8f, .ki = 15.f, .integrator = 0.0f, .out_min = -v_limit, .out_max = v_limit };
+    cc.q_pi = { .kp = 0.8f, .ki = 15.0f, .integrator = 0.0f, .out_min = -v_limit, .out_max = v_limit };
     sc.pi = { .kp = 0.1f, .ki = 0.01f, .integrator = 0.0f, .out_min = -cc.current_limit, .out_max = cc.current_limit };
 
     uint64_t total_cycles = 0;
     uint32_t last_log_us = 0;
     uint32_t last_cycles = DWT->CYCCNT;
     constexpr uint32_t log_period_us = 100'000U;
-
-    constexpr float STEP_TIME_S = 2.0f;      // let it settle at zero first
-    constexpr float STEP_TARGET = 0.24f;     // mechanical rad/s -- works: 0.25, 0.5
 
     // manual hold delay
     //mcl::delay_ms(5000);
@@ -135,12 +143,9 @@ inline void test_foc_closed_loop() {
         last_cycles = now_cycles;
         float elapsed_s = (float)total_cycles / (float)SystemCoreClock;
         uint32_t now_us = (uint32_t)(elapsed_s * 1e6f);
-
-        //cc.q_ref = 0.1f;
-        sc.speed_ref = (elapsed_s < STEP_TIME_S) ? 0.0f : STEP_TARGET;
-
+        cc.q_ref = 0.5f;
+        //sc.speed_ref = 3.0f
         encoder_read_and_update_angles(bus);
-
         // log once every 10 seconds
         if ((uint32_t)(now_us - last_log_us) >= log_period_us) {
             last_log_us = now_us;

@@ -11,22 +11,32 @@ constexpr float AS5600_COUNT_TO_RAD = TWO_PI / AS5600_COUNTS;
 constexpr float VELOCITY_ESTIMATOR_DT_MIN = VELOCITY_ESTIMATOR_PERIOD_US * 1e-6f;
 
 struct encoder_state_t {
+    // Calibration
     // we want to determine two things
     // Zero — where is the encoder when the motor is at electrical angle 0?
     // Sign — when we command positive electrical rotation, does the encoder count go up or down?
-    // +1: encoder increases with positive electrical angle
-    // -1: encoder decreases with positive electrical angle
-    int8_t sign;
-    uint16_t zero_raw;
-    uint16_t raw;
+    // +1: encoder count increases with positive electrical rotation
+    // -1: encoder count decreases with positive electrical rotation
+    int8_t sign = 1;
+    // AS5600 raw count corresponding to electrical zero
+    uint16_t zero_raw = 0;
+    // Latest raw AS5600 reading
+    uint16_t raw = 0;
+    // Position states
+    // Mechanical rotor angle in radians
+    // Range: approximately [-PI, PI]
+    float mechanical_angle = 0.0f;
+    // Electrical angle for FOC Park transform
+    // Range: [0, TWO_PI)
     float electrical_angle = 0.0f;
+    // Velocity states
+    // Mechanical angular velocity in rad/s
     float mechanical_velocity = 0.0f;
+    // Electrical angular velocity in rad/s
+    // = mechanical_velocity * POLE_PAIRS
     float electrical_velocity = 0.0f;
-    // Velocity estimator state.
-    // Position is sampled continuously, but velocity is computed
-    // over a longer baseline to reduce 12-bit encoder quantization noise.
-    uint16_t velocity_raw = 0;
-    uint32_t velocity_cycles = 0;
+    // Timing for velocity estimation
+    uint32_t last_update_cycles = 0;
     bool velocity_valid = false;
 };
 
@@ -115,81 +125,70 @@ inline void calibrate_encoder(serial::i2c& bus, svpwm_t& svm) {
             << encoder.zero_raw << " sign = " << (int)encoder.sign;
 }
 
-inline float encoder_to_electrical_angle(uint16_t raw,
-        float zero_raw, int8_t encoder_sign) {
+inline float encoder_to_mechanical_angle(
+    uint16_t raw, uint16_t zero_raw, int8_t encoder_sign) {
     constexpr float AS5600_COUNTS = 4096.0f;
-    float mechanical =
-        ((float)raw - zero_raw) / AS5600_COUNTS;
-    // Handle encoder wrap.
-    if (mechanical > 0.5f)
-        mechanical -= 1.0f;
-    else if (mechanical < -0.5f)
-        mechanical += 1.0f;
-    // Apply measured encoder direction.
-    mechanical *= (float)encoder_sign;
-    // Convert mechanical revolution to electrical angle.
-    float theta = mechanical * TWO_PI * POLE_PAIRS;
-    theta = fmodf(theta, TWO_PI);
-    if (theta < 0.0f)
-        theta += TWO_PI;
-    return theta;
+    float angle =
+        ((float)raw - (float)zero_raw) / AS5600_COUNTS;
+    // wrap to [-0.5,0.5] mechanical turns
+    if (angle > 0.5f)
+        angle -= 1.0f;
+    else if (angle < -0.5f)
+        angle += 1.0f;
+    angle *= (float)encoder_sign;
+    return angle * TWO_PI;
 }
 
 inline void encoder_read_and_update_angles(serial::i2c& bus) {
 
-    const uint16_t raw = as5600_read_raw_angle(bus);
-    const uint32_t now_cycles = DWT->CYCCNT;
+    encoder.raw = as5600_read_raw_angle(bus);
 
-    encoder.raw = raw;
-    // Absolute electrical position for FOC.
-    encoder.electrical_angle =
-        encoder_to_electrical_angle(
-            raw,
+    float mechanical_angle =
+        encoder_to_mechanical_angle(
+            encoder.raw,
             encoder.zero_raw,
             encoder.sign);
 
-    // Initialize velocity estimator.
-    if (!encoder.velocity_valid) {
-        encoder.velocity_raw = raw;
-        encoder.velocity_cycles = now_cycles;
+    // Needed by FOC
+    float electrical_angle =
+        mechanical_angle * POLE_PAIRS;
+
+    electrical_angle = fmodf(electrical_angle, TWO_PI);
+
+    if (electrical_angle < 0)
+        electrical_angle += TWO_PI;
+
+    uint32_t now_cycles = DWT->CYCCNT;
+
+    if (encoder.velocity_valid) {
+        float dt = (float)(now_cycles - encoder.last_update_cycles) /
+            (float)SystemCoreClock;
+
+        if (dt > 1e-6f) {
+            float dtheta =
+                mechanical_angle - encoder.mechanical_angle;
+
+            // mechanical angle unwrap
+            if (dtheta > PI)
+                dtheta -= TWO_PI;
+            else if (dtheta < -PI)
+                dtheta += TWO_PI;
+
+            float velocity = dtheta / dt;
+
+            encoder.mechanical_velocity +=
+                VELOCITY_FILTER_ALPHA *
+                (velocity - encoder.mechanical_velocity);
+
+            encoder.electrical_velocity =
+                encoder.mechanical_velocity * POLE_PAIRS;
+        }
+    } else {
         encoder.velocity_valid = true;
-        encoder.mechanical_velocity = 0.0f;
-        encoder.electrical_velocity = 0.0f;
-        return;
     }
-
-    const uint32_t delta_cycles =
-        now_cycles - encoder.velocity_cycles;
-
-    const float dt =
-        static_cast<float>(delta_cycles) /
-            static_cast<float>(SystemCoreClock);
-
-    if (dt < VELOCITY_ESTIMATOR_DT_MIN) return;
-
-    const int32_t raw_delta =
-        encoder_signed_wrap_delta(
-            encoder.velocity_raw, raw);
-
-    const float mechanical_delta =
-        static_cast<float>(raw_delta) *
-        AS5600_COUNT_TO_RAD *
-        static_cast<float>(encoder.sign);
-
-    const float raw_mechanical_velocity =
-        mechanical_delta / dt;
-
-    encoder.mechanical_velocity +=
-        VELOCITY_FILTER_ALPHA *
-        (raw_mechanical_velocity -
-         encoder.mechanical_velocity);
-
-    encoder.electrical_velocity =
-        encoder.mechanical_velocity *
-        static_cast<float>(POLE_PAIRS);
-
-    encoder.velocity_raw = raw;
-    encoder.velocity_cycles = now_cycles;
+    encoder.last_update_cycles = now_cycles;
+    encoder.mechanical_angle = mechanical_angle;
+    encoder.electrical_angle = electrical_angle;
 }
 
 inline void test_as5600() {
