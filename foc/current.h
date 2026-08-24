@@ -15,7 +15,7 @@ constexpr float MOTOR_KV = 220.0f;               // RPM per volt, from datasheet
 // (spin open-loop at known speed, measure induced phase voltage,
 // lambda = V_peak / electrical_velocity).
 constexpr float MOTOR_KE = 1.0f / (MOTOR_KV * (TWO_PI / 60.0f));
-constexpr float MOTOR_LAMBDA = MOTOR_KE / (float)POLE_PAIRS;
+constexpr float MOTOR_LAMBDA = MOTOR_KE / (float)POLE_PAIRS * 0.50f;
 
 // PI controller
 struct pi_controller_t {
@@ -252,10 +252,10 @@ inline void current_control_update(current_control_t& control, current_sense_t& 
     // so anti-windup scaling below only needs to touch the PI portion.
     float vd_ff = -electrical_velocity * MOTOR_INDUCTANCE_H * pt.q;
     float vq_ff =  electrical_velocity * MOTOR_INDUCTANCE_H * pt.d
-                 + electrical_velocity * MOTOR_LAMBDA;
+                    + electrical_velocity * MOTOR_LAMBDA;
 
-    float vd = vd_pi ; //+ vd_ff;
-    float vq = vq_pi ; //+ vq_ff;
+    float vd = vd_pi + vd_ff;
+    float vq = vq_pi + vq_ff;
 
     // Limit voltage vector to linear SVPWM range.
     const float v_limit = SVPWM_MAX_MODULATION * control.vbus;

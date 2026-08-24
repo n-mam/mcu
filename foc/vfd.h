@@ -85,7 +85,7 @@ inline void test_vf_drive() {
         // PWM interrupt, so a 1 ms foreground update is sufficient.
         if ((uint32_t)(now_ms - last_ramp_update_ms) >= 1U) {
             float elapsed_s = (float)(now_ms - ramp_start_ms) * 0.001f;
-            // Both values use EXACTLY the same elapsed_s.
+            // Both values use exactly the same elapsed_s.
             // Therefore the voltage and frequency ramps are
             // synchronized.
             g_open_loop.modulation =

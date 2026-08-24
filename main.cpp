@@ -28,7 +28,7 @@ static constexpr
             {21,  test_mahony},
             {22,  adc_tim_dma_test},
             {23,  test_vf_drive},
-            {24,  test_foc_closed_loop},
+            {24,  test_foc},
             {25,  test_as5600},
             #if defined(PICO)
             {99, []() {

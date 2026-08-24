@@ -6,9 +6,8 @@ constexpr uint32_t POLE_PAIRS = 7;
 constexpr float AS5600_COUNTS = 4096.0f;
 // tune: lower = smoother but more lag
 constexpr float VELOCITY_FILTER_ALPHA = 0.2f;
-constexpr uint32_t VELOCITY_ESTIMATOR_PERIOD_US = 5'000U;
 constexpr float AS5600_COUNT_TO_RAD = TWO_PI / AS5600_COUNTS;
-constexpr float VELOCITY_ESTIMATOR_DT_MIN = VELOCITY_ESTIMATOR_PERIOD_US * 1e-6f;
+constexpr float VELOCITY_STALE_TIMEOUT_S = 0.5f; // if no tick for this long, assume stopped
 
 struct encoder_state_t {
     // Calibration
@@ -38,6 +37,9 @@ struct encoder_state_t {
     // Timing for velocity estimation
     uint32_t last_update_cycles = 0;
     bool velocity_valid = false;
+    // NEW -- M/T velocity estimator state
+    uint16_t velocity_raw = 0;
+    uint32_t velocity_cycles = 0;
 };
 
 inline encoder_state_t encoder;
@@ -161,30 +163,48 @@ inline void encoder_read_and_update_angles(serial::i2c& bus) {
     uint32_t now_cycles = DWT->CYCCNT;
 
     if (encoder.velocity_valid) {
-        float dt = (float)(now_cycles - encoder.last_update_cycles) /
-            (float)SystemCoreClock;
+        int32_t count_delta =
+            encoder_signed_wrap_delta(encoder.velocity_raw, encoder.raw);
 
-        if (dt > 1e-6f) {
-            float dtheta =
-                mechanical_angle - encoder.mechanical_angle;
+        if (count_delta != 0) {
+            // A real encoder tick occurred -- measure precisely how
+            // long it took, rather than counting ticks in a fixed window.
+            float dt = (float)(now_cycles - encoder.velocity_cycles) /
+                (float)SystemCoreClock;
 
-            // mechanical angle unwrap
-            if (dtheta > PI)
-                dtheta -= TWO_PI;
-            else if (dtheta < -PI)
-                dtheta += TWO_PI;
+            if (dt > 1e-6f) {
+                float mech_delta =
+                    (float)count_delta * AS5600_COUNT_TO_RAD *
+                    (float)encoder.sign;
 
-            float velocity = dtheta / dt;
+                float velocity = mech_delta / dt;
 
-            encoder.mechanical_velocity +=
-                VELOCITY_FILTER_ALPHA *
-                (velocity - encoder.mechanical_velocity);
+                encoder.mechanical_velocity +=
+                    VELOCITY_FILTER_ALPHA *
+                        (velocity - encoder.mechanical_velocity);
 
-            encoder.electrical_velocity =
-                encoder.mechanical_velocity * POLE_PAIRS;
+                encoder.electrical_velocity =
+                    encoder.mechanical_velocity * POLE_PAIRS;
+            }
+            encoder.velocity_raw = encoder.raw;
+            encoder.velocity_cycles = now_cycles;
+        } else {
+            // No tick yet -- if it's been too long, the rotor has
+            // genuinely stopped (or is moving too slowly to register
+            // even one count); don't hold a stale nonzero velocity.
+            float since_last_tick =
+                (float)(now_cycles - encoder.velocity_cycles) /
+                (float)SystemCoreClock;
+
+            if (since_last_tick > VELOCITY_STALE_TIMEOUT_S) {
+                encoder.mechanical_velocity = 0.0f;
+                encoder.electrical_velocity = 0.0f;
+            }
         }
     } else {
         encoder.velocity_valid = true;
+        encoder.velocity_raw = encoder.raw;
+        encoder.velocity_cycles = now_cycles;
     }
     encoder.last_update_cycles = now_cycles;
     encoder.mechanical_angle = mechanical_angle;

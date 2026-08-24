@@ -1,7 +1,6 @@
 import re
 import argparse
 import sys
-import time
 
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
@@ -12,154 +11,404 @@ try:
 except ImportError:
     serial = None
 
+
 # =========================================================
 # Configuration
 # =========================================================
 
 DEFAULT_BAUD = 115200
 
-# Matches:
-# elapsed:1147.731079
-# iq_ref:0.100000A
-# [d:0.063280 q:0.130589]
+
+# Supports old logs and new logs:
+#
+# Old:
+# elapsed:x q_ref:xA [d:x q:x] mod:x
+#
+# New:
+# elapsed:x q_ref:xA [d:x q:x] mod:x s_ref:x s_mes:x
+#
+
 PATTERN = re.compile(
     r"elapsed:([-\d.]+).*?"
+    r"s_ref:([-\d.]+).*?"
+    r"s_mes:([-\d.]+).*?"
     r"q_ref:([-\d.]+)A.*?"
     r"\[d:([-\d.]+)\s+q:([-\d.]+)\].*?"
     r"mod:([-\d.]+)"
 )
 
+
 # =========================================================
 # Parse one log line
 # =========================================================
+
 def parse_line(line):
+
     match = PATTERN.search(line)
 
     if not match:
         return None
 
     elapsed = float(match.group(1))
-    iq_ref = float(match.group(2))
-    q = float(match.group(4))
-    modulation = float(match.group(5))
 
-    return elapsed, iq_ref, q, modulation
+    s_ref = float(match.group(2))
+    s_mes = float(match.group(3))
+
+    iq_ref = float(match.group(4))
+
+    d = float(match.group(5))
+    q = float(match.group(6))
+
+    modulation = float(match.group(7))
+
+
+    return (
+        elapsed,
+        iq_ref,
+        d,
+        q,
+        modulation,
+        s_ref,
+        s_mes
+    )
+
+
 # =========================================================
 # FILE MODE
 # =========================================================
+
 def read_file(filename):
+
     time_data = []
-    setpoint = []
-    process_variable = []
+
+    iq_setpoint = []
+    iq_current = []
+
+    d_setpoint = []
+    d_current = []
+
+    s_setpoint = []
+    s_current = []
+
 
     print(f"Reading log file: {filename}")
 
+
     with open(filename, "r") as f:
+
         for line in f:
+
             result = parse_line(line)
 
             if result is None:
                 continue
 
-            t, sp, pv, mod = result
+
+            (
+                t,
+                iq_ref,
+                d,
+                q,
+                mod,
+                s_ref,
+                s_mes
+            ) = result
+
 
             time_data.append(t)
-            setpoint.append(sp)
-            process_variable.append(pv)
+
+            iq_setpoint.append(iq_ref)
+            iq_current.append(q)
+
+            d_setpoint.append(0.0)
+            d_current.append(d)
+
+
+            if s_ref is not None:
+
+                s_setpoint.append(s_ref)
+                s_current.append(s_mes)
+
+
+            else:
+
+                s_setpoint.append(0.0)
+                s_current.append(0.0)
+
+
 
     print(f"Loaded {len(time_data)} valid samples")
 
+
     if not time_data:
+
         print("ERROR: No valid PI data found.")
         sys.exit(1)
 
-    plot_static(time_data, setpoint, process_variable)
+
+    plot_static(
+        time_data,
+        iq_setpoint,
+        iq_current,
+        d_setpoint,
+        d_current,
+        s_setpoint,
+        s_current
+    )
+
+
+
 # =========================================================
 # STATIC PLOT
 # =========================================================
-def plot_static(time_data, setpoint, process_variable):
 
-    # Make time relative to first sample
-    t0 = time_data[0]
-    time_data = [t - t0 for t in time_data]
-
-    plt.figure(figsize=(12, 6))
-
-    plt.plot(
+def plot_static(
         time_data,
-        setpoint,
+        iq_setpoint,
+        iq_current,
+        d_setpoint,
+        d_current,
+        s_setpoint,
+        s_current):
+
+
+    t0 = time_data[0]
+
+
+    time_data = [
+        t - t0
+        for t in time_data
+    ]
+
+
+
+    fig, axs = plt.subplots(
+        3,
+        1,
+        figsize=(12, 10),
+        sharex=True
+    )
+
+
+
+    # -----------------------------------------------------
+    # q axis
+    # -----------------------------------------------------
+
+    axs[0].plot(
+        time_data,
+        iq_setpoint,
         color="red",
         linewidth=2,
-        label="Setpoint (iq_ref)"
+        label="iq_ref"
     )
 
-    plt.plot(
+
+    axs[0].plot(
         time_data,
-        process_variable,
+        iq_current,
         color="blue",
         linewidth=1.2,
-        label="Process Variable (iq)"
+        label="iq"
     )
 
-    plt.xlabel("Time [s]")
-    plt.ylabel("q-axis Current [A]")
 
-    plt.title("FOC q-axis Current PI Control")
+    axs[0].set_ylabel(
+        "q-axis Current [A]"
+    )
 
-    plt.grid(
+
+    axs[0].set_title(
+        "FOC q-axis Current Control"
+    )
+
+
+    axs[0].grid(
         True,
-        which="both",
         linestyle="--",
         alpha=0.4
     )
 
-    plt.legend()
+
+    axs[0].legend()
+
+
+
+    # -----------------------------------------------------
+    # d axis
+    # -----------------------------------------------------
+
+    axs[1].plot(
+        time_data,
+        d_setpoint,
+        color="red",
+        linewidth=2,
+        label="id_ref = 0"
+    )
+
+
+    axs[1].plot(
+        time_data,
+        d_current,
+        color="green",
+        linewidth=1.2,
+        label="id"
+    )
+
+
+    axs[1].set_ylabel(
+        "d-axis Current [A]"
+    )
+
+
+    axs[1].set_title(
+        "FOC d-axis Current Regulation"
+    )
+
+
+    axs[1].grid(
+        True,
+        linestyle="--",
+        alpha=0.4
+    )
+
+
+    axs[1].legend()
+
+
+
+    # -----------------------------------------------------
+    # S axis
+    # -----------------------------------------------------
+
+    axs[2].plot(
+        time_data,
+        s_setpoint,
+        color="red",
+        linewidth=2,
+        label="s_ref"
+    )
+
+
+    axs[2].plot(
+        time_data,
+        s_current,
+        color="purple",
+        linewidth=1.2,
+        label="s_mes"
+    )
+
+
+    axs[2].set_xlabel(
+        "Time [s]"
+    )
+
+
+    axs[2].set_ylabel(
+        "S"
+    )
+
+
+    axs[2].set_title(
+        "S-axis PI Control"
+    )
+
+
+    axs[2].grid(
+        True,
+        linestyle="--",
+        alpha=0.4
+    )
+
+
+    axs[2].legend()
+
+    axs[2].set_ylim(
+        min(min(s_setpoint), min(s_current)) - 0.2,
+        max(max(s_setpoint), max(s_current)) + 0.2
+    )
+
 
     plt.tight_layout()
+
     plt.show()
+
 # =========================================================
 # LIVE SERIAL MODE
 # =========================================================
+
 def live_serial(port, baud):
 
     if serial is None:
+
         print(
             "ERROR: pyserial is not installed.\n"
             "Install it with:\n\n"
             "    pip install pyserial"
         )
+
         sys.exit(1)
+
+
 
     print(f"Opening serial port: {port}")
     print(f"Baud rate: {baud}")
 
+
     try:
+
         ser = serial.Serial(
             port=port,
             baudrate=baud,
             timeout=0.05
         )
+
+
     except serial.SerialException as e:
-        print(f"ERROR opening serial port: {e}")
+
+        print(
+            f"ERROR opening serial port: {e}"
+        )
+
         sys.exit(1)
 
+
+
     time_data = []
+
     setpoint = []
     process_variable = []
+
+    d_setpoint = []
+    d_current = []
+
+    s_setpoint = []
+    s_current = []
+
+
 
     # -----------------------------------------------------
     # Create live plot
     # -----------------------------------------------------
 
-    fig, ax = plt.subplots(figsize=(12, 6))
+    fig, (ax_q, ax_d, ax_s) = plt.subplots(
+        3,
+        1,
+        figsize=(12, 10),
+        sharex=True
+    )
+
+
 
     latest_modulation = [0.0]
 
-    mod_text = ax.text(
+
+
+    mod_text = ax_q.text(
         0.02,
         0.95,
         "Modulation: 0.000",
-        transform=ax.transAxes,
+        transform=ax_q.transAxes,
         fontsize=14,
         fontweight="bold",
         color="green",
@@ -171,7 +420,13 @@ def live_serial(port, baud):
         )
     )
 
-    line_sp, = ax.plot(
+
+
+    # -----------------------------------------------------
+    # q-axis plot
+    # -----------------------------------------------------
+
+    line_sp, = ax_q.plot(
         [],
         [],
         color="red",
@@ -179,7 +434,8 @@ def live_serial(port, baud):
         label="Setpoint (iq_ref)"
     )
 
-    line_pv, = ax.plot(
+
+    line_pv, = ax_q.plot(
         [],
         [],
         color="blue",
@@ -187,62 +443,273 @@ def live_serial(port, baud):
         label="Process Variable (iq)"
     )
 
-    ax.set_xlabel("Time [s]")
-    ax.set_ylabel("q-axis Current [A]")
-    ax.set_ylim(0, 0.5)
 
-    ax.set_title(
-        f"FOC q-axis Current PI Control - {port}"
+    ax_q.set_ylabel(
+        "q-axis Current [A]"
     )
 
-    ax.grid(
+
+    ax_q.set_title(
+        f"FOC Current PI Control - {port}"
+    )
+
+
+    ax_q.grid(
         True,
-        which="both",
         linestyle="--",
         alpha=0.4
     )
 
-    ax.legend()
+
+    ax_q.legend()
+
+
+
+    # -----------------------------------------------------
+    # d-axis plot
+    # -----------------------------------------------------
+
+    line_dref, = ax_d.plot(
+        [],
+        [],
+        color="red",
+        linewidth=2,
+        label="Setpoint (id_ref)"
+    )
+
+
+    line_d, = ax_d.plot(
+        [],
+        [],
+        color="green",
+        linewidth=1.2,
+        label="Process Variable (id)"
+    )
+
+
+    ax_d.set_ylabel(
+        "d-axis Current [A]"
+    )
+
+
+    ax_d.set_title(
+        "FOC d-axis Current Regulation"
+    )
+
+
+    ax_d.grid(
+        True,
+        linestyle="--",
+        alpha=0.4
+    )
+
+
+    ax_d.legend()
+
+
+
+    # -----------------------------------------------------
+    # S-axis plot
+    # -----------------------------------------------------
+
+    line_sref, = ax_s.plot(
+        [],
+        [],
+        color="red",
+        linewidth=2,
+        label="Setpoint (s_ref)"
+    )
+
+
+    line_smes, = ax_s.plot(
+        [],
+        [],
+        color="purple",
+        linewidth=1.2,
+        label="Measured (s_mes)"
+    )
+
+
+    ax_s.set_xlabel(
+        "Time [s]"
+    )
+
+
+    ax_s.set_ylabel(
+        "S"
+    )
+
+
+    ax_s.set_title(
+        "S-axis PI Control"
+    )
+
+
+    ax_s.grid(
+        True,
+        linestyle="--",
+        alpha=0.4
+    )
+
+
+    ax_s.legend()
+
+    ax_s.set_ylim(
+        -2,
+        2
+    )
 
     # -----------------------------------------------------
     # Serial reader
     # -----------------------------------------------------
+
     PV_AVG_SAMPLES = 10
-    pv_window = deque(maxlen=PV_AVG_SAMPLES)
-    pv_average = []
+
+    q_window = deque(
+        maxlen=PV_AVG_SAMPLES
+    )
+
+    d_window = deque(
+        maxlen=PV_AVG_SAMPLES
+    )
+
+    s_window = deque(
+        maxlen=PV_AVG_SAMPLES
+    )
+
 
     def read_serial():
-        """
-        Read all currently available serial data.
-        """
 
         while ser.in_waiting:
 
             try:
+
                 raw = ser.readline()
+
                 line = raw.decode(
                     "utf-8",
                     errors="ignore"
                 ).strip()
 
+
             except Exception:
+
                 continue
+
+
 
             result = parse_line(line)
 
+
             if result is None:
+
                 continue
 
-            t, sp, pv, mod = result
+
+
+            (
+                t,
+                iq_ref,
+                d,
+                q,
+                mod,
+                s_ref,
+                s_mes
+            ) = result
+
+
+
             latest_modulation[0] = mod
+
+
+
             time_data.append(t)
-            setpoint.append(sp)
 
-            # Running average of PV
-            pv_window.append(pv)
-            pv_avg = sum(pv_window) / len(pv_window)
 
-            process_variable.append(pv_avg)
+
+            setpoint.append(
+                iq_ref
+            )
+
+
+
+            # q-axis filtering
+
+            q_window.append(q)
+
+            q_avg = (
+                sum(q_window)
+                /
+                len(q_window)
+            )
+
+            process_variable.append(
+                q_avg
+            )
+
+
+
+            # d-axis filtering
+
+            d_window.append(d)
+
+            d_avg = (
+                sum(d_window)
+                /
+                len(d_window)
+            )
+
+            d_current.append(
+                d_avg
+            )
+
+            d_setpoint.append(
+                0.0
+            )
+
+
+
+            # S-axis
+
+            if s_ref is not None:
+
+                s_setpoint.append(
+                    s_ref
+                )
+
+
+                # -----------------------------
+                # S-axis speed filtering
+                # -----------------------------
+
+                s_window.append(
+                    s_mes
+                )
+
+
+                s_avg = (
+                    sum(s_window)
+                    /
+                    len(s_window)
+                )
+
+
+                s_current.append(
+                    s_avg
+                )
+
+
+            else:
+
+                s_setpoint.append(
+                    0.0
+                )
+
+                s_current.append(
+                    0.0
+                )
+
+
 
     # -----------------------------------------------------
     # Update plot
@@ -252,39 +719,113 @@ def live_serial(port, baud):
 
         read_serial()
 
+
+
         mod_text.set_text(
             f"Modulation: {latest_modulation[0]:.3f}"
         )
 
-        if not time_data:
-            return line_sp, line_pv
 
-        # Relative time
+
+        if not time_data:
+
+            return (
+                line_sp,
+                line_pv,
+                line_dref,
+                line_d,
+                line_sref,
+                line_smes
+            )
+
+
+
         t0 = time_data[0]
+
 
         x = [
             t - t0
             for t in time_data
         ]
 
+
+
         line_sp.set_data(
             x,
             setpoint
         )
+
 
         line_pv.set_data(
             x,
             process_variable
         )
 
-        # -------------------------------------------------
-        # Automatic axis scaling
-        # -------------------------------------------------
 
-        ax.relim()
-        ax.autoscale_view()
+        line_dref.set_data(
+            x,
+            d_setpoint
+        )
 
-        return line_sp, line_pv
+
+        line_d.set_data(
+            x,
+            d_current
+        )
+
+
+        line_sref.set_data(
+            x,
+            s_setpoint
+        )
+
+
+        line_smes.set_data(
+            x,
+            s_current
+        )
+
+
+
+        ax_q.relim()
+        ax_q.autoscale_view()
+
+
+        ax_d.relim()
+        ax_d.autoscale_view()
+
+
+        if s_setpoint and s_current:
+
+            ymin = min(
+                min(s_setpoint),
+                min(s_current)
+            )
+
+            ymax = max(
+                max(s_setpoint),
+                max(s_current)
+            )
+
+            margin = 0.2
+
+            ax_s.set_ylim(
+                ymin - margin,
+                ymax + margin
+            )
+
+
+
+        return (
+            line_sp,
+            line_pv,
+            line_dref,
+            line_d,
+            line_sref,
+            line_smes
+        )
+
+
 
     # -----------------------------------------------------
     # Run animation
@@ -298,16 +839,29 @@ def live_serial(port, baud):
         cache_frame_data=False
     )
 
+
+
     try:
+
         plt.tight_layout()
+
         plt.show()
 
+
+
     except KeyboardInterrupt:
+
         pass
 
+
+
     finally:
+
         ser.close()
+
         print("\nSerial port closed.")
+
+
 
 
 # =========================================================
@@ -318,14 +872,18 @@ def main():
 
     parser = argparse.ArgumentParser(
         description=(
-            "FOC PI q-axis current plotter. "
+            "FOC PI current plotter. "
             "Read from a saved log file or live serial port."
         )
     )
 
+
+
     mode = parser.add_mutually_exclusive_group(
         required=True
     )
+
+
 
     mode.add_argument(
         "--file",
@@ -333,11 +891,15 @@ def main():
         help="Read saved log file"
     )
 
+
+
     mode.add_argument(
         "--port",
         "-p",
         help="Read live serial port"
     )
+
+
 
     parser.add_argument(
         "--baud",
@@ -347,16 +909,30 @@ def main():
         help=f"Serial baud rate (default: {DEFAULT_BAUD})"
     )
 
+
+
     args = parser.parse_args()
 
+
+
     if args.file:
-        read_file(args.file)
+
+        read_file(
+            args.file
+        )
+
+
 
     elif args.port:
+
         live_serial(
             args.port,
             args.baud
         )
 
+
+
+
 if __name__ == "__main__":
+
     main()
