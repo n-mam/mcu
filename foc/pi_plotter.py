@@ -4,6 +4,8 @@ import sys
 
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
+from matplotlib.widgets import Button
+
 from collections import deque
 
 try:
@@ -577,6 +579,84 @@ def live_serial(port, baud):
         maxlen=PV_AVG_SAMPLES
     )
 
+    # -----------------------------------------------------
+    # RESET BUTTON
+    # -----------------------------------------------------
+
+    reset_ax = fig.add_axes(
+        [0.85, 0.93, 0.10, 0.04]
+    )
+
+    reset_button = Button(
+        reset_ax,
+        "RESET",
+        color="lightgray",
+        hovercolor="red"
+    )
+
+
+    def reset_data(event):
+
+        # Clear all recorded data
+        time_data.clear()
+
+        setpoint.clear()
+        process_variable.clear()
+
+        d_setpoint.clear()
+        d_current.clear()
+
+        s_setpoint.clear()
+        s_current.clear()
+
+
+        # Clear filter history
+        q_window.clear()
+        d_window.clear()
+        s_window.clear()
+
+
+        # Reset modulation
+        latest_modulation[0] = 0.0
+
+
+        # Clear plotted lines
+        line_sp.set_data([], [])
+        line_pv.set_data([], [])
+
+        line_dref.set_data([], [])
+        line_d.set_data([], [])
+
+        line_sref.set_data([], [])
+        line_smes.set_data([], [])
+
+
+        # Reset modulation display
+        mod_text.set_text(
+            "Modulation: 0.000"
+        )
+
+
+        # Reset axes
+        ax_q.relim()
+        ax_q.autoscale_view()
+
+        ax_d.relim()
+        ax_d.autoscale_view()
+
+        ax_s.set_ylim(
+            -2,
+            2
+        )
+
+
+        # Redraw
+        fig.canvas.draw_idle()
+
+
+    reset_button.on_clicked(
+        reset_data
+    )
 
     def read_serial():
 

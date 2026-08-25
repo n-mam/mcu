@@ -6,8 +6,14 @@ constexpr float CSA_GAIN   = 50.0f;      // V/V, INA240A2
 constexpr float R_SHUNT    = 0.010f;     // 10 mill ohms
 constexpr float ADC_MAXCNT = 4095.0f;
 
-constexpr float MOTOR_INDUCTANCE_H = 0.00086f;   // L, henries, from datasheet
 constexpr float MOTOR_KV = 220.0f;               // RPM per volt, from datasheet
+constexpr float MOTOR_RESISTANCE = 2.3f;
+constexpr float MOTOR_INDUCTANCE_H = 0.00086f;   // L, henries, from datasheet
+const float CURRENT_BANDWIDTH = 2000.0f;
+const float WC = 2.0f * PI * CURRENT_BANDWIDTH;
+float kp = MOTOR_INDUCTANCE_H * WC;
+float ki = MOTOR_RESISTANCE * WC;
+
 // Ke (V per mechanical rad/s) derived from KV, then divided by pole pairs
 // to get lambda (V per ELECTRICAL rad/s) -- electrical_velocity is
 // electrical rad/s, so this is the constant that pairs with it directly.

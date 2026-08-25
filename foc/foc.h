@@ -21,7 +21,6 @@ inline void foc_voltage_apply(current_control_t& cc, float electrical_angle) {
 }
 
 inline void adc_injected_callback(uint16_t raw_a, uint16_t raw_b) {
-    static uint8_t speed_loop_divider = 0;
     // zero-current calibration
     if (cs.calibrating) {
         cs.calibration_sum_a += raw_a;
@@ -40,8 +39,8 @@ inline void adc_injected_callback(uint16_t raw_a, uint16_t raw_b) {
         (float)(DWT->CYCCNT - encoder.last_update_cycles)
             / (float)SystemCoreClock;
 
-    // Predict the electrical angle forward from the last encoder sample.
-    float electrical_angle = encoder.electrical_angle +
+    // // Predict the electrical angle forward from the last encoder sample.
+    float electrical_angle = encoder.electrical_angle; +
         encoder.electrical_velocity * encoder_age;
 
     // Wrap to [0, TWO_PI)
@@ -51,11 +50,14 @@ inline void adc_injected_callback(uint16_t raw_a, uint16_t raw_b) {
         electrical_angle += TWO_PI;
     }
 
-    // run the speed update first
-    if (++speed_loop_divider >= 40) {
+    static uint8_t speed_loop_divider = 0;
+    if (++speed_loop_divider >= 200) {
         speed_loop_divider = 0;
-        speed_control_update(sc, encoder.mechanical_velocity, 1.0f / 500.0f);
+        constexpr float SPEED_LOOP_DT = 1.0f / 100.0f;
+        speed_control_update(
+            sc, encoder.mechanical_velocity, SPEED_LOOP_DT);
     }
+
     constexpr float CURRENT_LOOP_DT = 1.0f / 20'000.0f;
     current_control_update(cc, cs, electrical_angle, encoder.electrical_velocity, CURRENT_LOOP_DT);
     // voltage to PWM
@@ -118,19 +120,27 @@ inline void test_foc() {
     calibration_svm.timer = &tm;
     calibrate_encoder(bus, calibration_svm);
 
+    // Read the encoder at the final calibrated rotor position.
+    encoder_read_and_update_angles(bus);
+    // Start the open-loop electrical field from the
+    // same electrical angle as the encoder.
+    g_open_loop.angle = encoder.electrical_angle;
+    // Discard any velocity-estimator state accumulated during calibration.
+    reset_velocity_estimator();
+
     // With vbus = 9.49 V:
     // v_limit = 9.49 / sqrt(3) ≈ 5.48 V
     // so each PI can request up to ±5.48 V.
     const float v_limit = SVPWM_MAX_MODULATION * cc.vbus;
-    cc.d_pi = { .kp = 10.0f, .ki = 2.1f, .integrator = 0.0f, .out_min = -v_limit, .out_max = v_limit };
-    cc.q_pi = { .kp = 10.0f, .ki = 2.1f, .integrator = 0.0f, .out_min = -v_limit, .out_max = v_limit };
-    sc.pi = { .kp = 0.05f, .ki = 0.5f, .integrator = 0.0f, .out_min = -cc.current_limit, .out_max = cc.current_limit };
+    cc.d_pi = { .kp = kp, .ki = ki, .integrator = 0.0f, .out_min = -v_limit, .out_max = v_limit };
+    cc.q_pi = { .kp = kp, .ki = ki, .integrator = 0.0f, .out_min = -v_limit, .out_max = v_limit };
+    sc.pi = { .kp = 0.01f, .ki = 0.002f, .integrator = 0.0f, .out_min = -0.3, .out_max = 0.3 };
 
     uint64_t total_cycles = 0;
     uint32_t last_cycles = DWT->CYCCNT;
 
     uint32_t last_log_us = 0;
-    constexpr uint32_t log_period_us = 100'000U;
+    constexpr uint32_t log_period_us = 500'000U;
 
     // manual hold delay
     mcl::delay_ms(2500);
@@ -139,24 +149,30 @@ inline void test_foc() {
 
     current_loop_hold = false;
     encoder_calibration_hold = false;
-
+    uint32_t last_encoder_read_us = 0;
     while (true) {
         uint32_t now_cycles = DWT->CYCCNT;
         total_cycles += (uint32_t)(now_cycles - last_cycles);
         last_cycles = now_cycles;
         float elapsed_s = (float)total_cycles / (float)SystemCoreClock;
         uint32_t now_us = (uint32_t)(elapsed_s * 1e6f);
-        //cc.q_ref = 0.01f;
+        //cc.q_ref = 0.025f;
         static float speed_command = 0;
-        speed_command += 0.0002f;
-        if (speed_command > 1.0f)
-            speed_command = 1.0f;
+        speed_command += 0.002f;
+        if (speed_command > 10.0f)
+            speed_command = 10.0f;
         sc.speed_ref = speed_command;
-        encoder_read_and_update_angles(bus);
+        if ((uint32_t)(now_us - last_encoder_read_us) >= ENCODER_READ_PERIOD_US) {
+            last_encoder_read_us = now_us;
+            encoder_read_and_update_angles(bus);
+        }
         // log once every log_period_us
         if ((uint32_t)(now_us - last_log_us) >= log_period_us) {
             last_log_us = now_us;
             log_foc_state(elapsed_s);
+            LOG << "raw:" << encoder.raw
+                    << " vel:" << encoder.mechanical_velocity << " qref:" << cc.q_ref
+                        << " sref:" << sc.speed_ref << " smes:" << sc.speed_measured;
         }
     }
 

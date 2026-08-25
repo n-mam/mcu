@@ -1,14 +1,11 @@
 #ifndef SPEED_H
 #define SPEED_H
 
-// Call at a fixed, slow rate (e.g. 1kHz) -- NOT from the 20kHz ISR.
-constexpr uint32_t SPEED_LOOP_PERIOD_US = 1000;
-
 struct speed_control_t {
     pi_controller_t pi;
     float speed_ref = 0.0f;      // mechanical rad/s
     float speed_measured = 0.0f; // mechanical rad/s
-    float iq_ref_limit = 0.8f;   // should match/derive from current_limit
+    float iq_ref_limit = 0.15f;   // should match/derive from current_limit
 };
 
 inline speed_control_t sc;
