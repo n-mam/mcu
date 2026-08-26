@@ -31,11 +31,9 @@ struct encoder_state_t {
     // Velocity states
     // Mechanical angular velocity in rad/s
     float mechanical_velocity = 0.0f;
-    float mechanical_acceleration = 0.0f;
     // Electrical angular velocity in rad/s
     // = mechanical_velocity * POLE_PAIRS
     float electrical_velocity = 0.0f;
-    float electrical_acceleration = 0.0f;
     // Velocity estimator state
     uint32_t last_update_cycles = 0;
     float velocity_last_angle = 0.0f;
@@ -69,17 +67,11 @@ struct mt_velocity_estimator_t {
     // measurement window.
     uint32_t window_start_cycles = 0;
     // Emit a new velocity estimate after this many counts.
-    int32_t min_count_threshold = 8;
+    int32_t min_count_threshold = 5;
     // Force an update at very low speed so velocity does
     // not remain stale forever.
     float max_wait_s = 0.05f;
     bool initialized = false;
-};
-
-struct encoder_prediction_t {
-    float electrical_angle;
-    float mechanical_velocity;
-    float electrical_velocity;
 };
 
 inline encoder_state_t encoder;
@@ -89,8 +81,6 @@ inline void reset_velocity_estimator() {
     g_mt_vel = {};
     encoder.mechanical_velocity = 0.0f;
     encoder.electrical_velocity = 0.0f;
-    encoder.mechanical_acceleration = 0.0f;
-    encoder.electrical_acceleration = 0.0f;
     // Make the next encoder sample start from the current
     // raw position, not from an old calibration/sample position.
     encoder.previous_raw = encoder.raw;
@@ -181,23 +171,15 @@ inline void mt_velocity_update(int32_t delta_counts) {
                 (float)g_mt_vel.accumulated_counts * AS5600_COUNT_TO_RAD;
             velocity_raw = accumulated_angle / elapsed_s;
         }
+
         constexpr float VELOCITY_ALPHA = 0.3f;
-
-        float previous_mechanical_velocity = encoder.mechanical_velocity;
-
         encoder.mechanical_velocity = encoder.mechanical_velocity +
             VELOCITY_ALPHA * (velocity_raw - encoder.mechanical_velocity);
-        encoder.mechanical_acceleration =
-            (encoder.mechanical_velocity - previous_mechanical_velocity) / elapsed_s;
-
         encoder.electrical_velocity = encoder.mechanical_velocity * (float)POLE_PAIRS;
-        encoder.electrical_acceleration = encoder.mechanical_acceleration * (float)POLE_PAIRS;
-
         // LOG << "VEL" << " dt_us=" << (elapsed_s * 1e6f) << " counts=" << g_mt_vel.accumulated_counts
         //         << " vraw=" << velocity_raw << " wm=" << encoder.mechanical_velocity
         //             << " we=" << encoder.electrical_velocity;
     }
-
     // Start a new measurement window.
     g_mt_vel.accumulated_counts = 0;
     g_mt_vel.window_start_cycles = now_cycles;
@@ -206,7 +188,7 @@ inline void mt_velocity_update(int32_t delta_counts) {
 // Extrapolate encoder state forward from the last I2C sample using
 // the last measured velocity/acceleration. Called from the ADC ISR,
 // which runs far more often than the encoder is actually read.
-inline encoder_prediction_t encoder_predict_state() {
+inline float encoder_predict_electrical_angle() {
     const float encoder_age =
         (float)(DWT->CYCCNT - encoder.last_update_cycles) /
             (float)SystemCoreClock;
@@ -216,11 +198,7 @@ inline encoder_prediction_t encoder_predict_state() {
     if (electrical_angle < 0.0f) {
         electrical_angle += TWO_PI;
     }
-    const float mechanical_velocity = encoder.mechanical_velocity +
-        encoder.mechanical_acceleration * encoder_age;
-    const float electrical_velocity = encoder.electrical_velocity +
-        encoder.electrical_acceleration * encoder_age;
-    return { electrical_angle, mechanical_velocity, electrical_velocity };
+    return electrical_angle;
 }
 
 inline void encoder_read_and_update_angles(serial::i2c& bus) {

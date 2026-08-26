@@ -1,9 +1,10 @@
 import re
 import threading
 import queue
+import math
 import tkinter as tk
 from collections import deque
-
+import matplotlib.patches
 import serial
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -55,6 +56,10 @@ q_ref_data = deque(maxlen=MAX_POINTS)
 
 s_mes_data = deque(maxlen=MAX_POINTS)
 s_ref_data = deque(maxlen=MAX_POINTS)
+
+v_alpha_data = deque(maxlen=MAX_POINTS)
+v_beta_data = deque(maxlen=MAX_POINTS)
+theta_data = deque(maxlen=MAX_POINTS)
 
 latest_d = 0.0
 latest_q = 0.0
@@ -156,10 +161,18 @@ def serial_reader():
 
             if match:
 
-                values = {
-                    key: float(value)
-                    for key, value in match.groupdict().items()
-                }
+                try:
+
+                    values = {
+                        key: float(value)
+                        for key, value in match.groupdict().items()
+                    }
+
+                except ValueError:
+
+                    print("Bad packet:", line)
+                    continue
+
 
                 data_queue.put(values)
 
@@ -605,6 +618,25 @@ def process_data():
 
         latest_mod = values["mod"]
 
+        theta = values["theta"]
+        vd = values["vd"]
+        vq = values["vq"]
+
+        v_alpha = (
+            vd * math.cos(theta)
+            - vq * math.sin(theta)
+        )
+
+        v_beta = (
+            vd * math.sin(theta)
+            + vq * math.cos(theta)
+        )
+
+        v_alpha_data.append(v_alpha)
+        v_beta_data.append(v_beta)
+
+        theta_data.append(theta)
+
     # --------------------------------------------------------
     # UPDATE LIVE VALUES
     # --------------------------------------------------------
@@ -682,7 +714,6 @@ def update_plots():
         x,
         list(s_ref_data)
     )
-
     # --------------------------------------------------------
     # X AXIS ONLY
     # --------------------------------------------------------
@@ -699,25 +730,32 @@ def update_plots():
             scalex=True,
             scaley=False
         )
+    # --------------------------------------------------------
+    # VOLTAGE VECTOR
+    # --------------------------------------------------------
+    if len(v_alpha_data) > 0:
+
+        va = v_alpha_data[-1]
+        vb = v_beta_data[-1]
+
+        vector_line.set_data(
+            [0, va],
+            [0, vb]
+        )
 
     canvas.draw_idle()
-
     # --------------------------------------------------------
     # Schedule next update
     # --------------------------------------------------------
-
     if not stop_event.is_set():
 
         after_id = root.after(
             UPDATE_MS,
             update_plots
         )
-
-
 # ============================================================
 # CLOSE APPLICATION
 # ============================================================
-
 def close_application():
 
     global after_id
@@ -762,12 +800,9 @@ def close_application():
     root.destroy()
 
     print("Application terminated.")
-
-
 # ============================================================
 # MAIN WINDOW
 # ============================================================
-
 root = tk.Tk()
 
 root.title(
@@ -787,12 +822,9 @@ root.protocol(
     "WM_DELETE_WINDOW",
     close_application
 )
-
-
 # ============================================================
 # TOP CONTROL BAR
 # ============================================================
-
 control_frame = tk.Frame(
     root,
     bg="#eeeeee"
@@ -819,9 +851,7 @@ title_label.pack(
     pady=10
 )
 
-
 # Modulation
-
 modulation_label = tk.Label(
     control_frame,
     text="Modulation: 0.0000",
@@ -835,9 +865,7 @@ modulation_label.pack(
     padx=35
 )
 
-
 # Reset data
-
 reset_button = tk.Button(
     control_frame,
     text="RESET DATA",
@@ -852,12 +880,9 @@ reset_button.pack(
     padx=10,
     pady=8
 )
-
-
 # ============================================================
 # RANGE CONTROL BAR
 # ============================================================
-
 range_frame = tk.Frame(
     root,
     bg="#dddddd",
@@ -1168,9 +1193,13 @@ ax_q = fig.add_subplot(
 )
 
 ax_s = fig.add_subplot(
-    gs[1, :]
+    gs[1, 0]
 )
 
+ax_vector = fig.add_subplot(
+    gs[1, 1],
+    aspect="equal"
+)
 
 fig.subplots_adjust(
     left=0.07,
@@ -1346,6 +1375,49 @@ ax_s.legend(
     loc="upper right"
 )
 
+# ============================================================
+# ALPHA-BETA VOLTAGE VECTOR PLOT
+# ============================================================
+
+vector_line, = ax_vector.plot(
+    [],
+    [],
+    color="blue",
+    linewidth=2,
+    marker="o",
+    label="Voltage Vector"
+)
+
+
+circle = matplotlib.patches.Circle(
+    (0,0),
+    1,
+    fill=False,
+    color="gray",
+    linestyle="--"
+)
+
+ax_vector.add_patch(circle)
+
+
+ax_vector.set_title(
+    "Voltage Vector (αβ)",
+    fontsize=12,
+    fontweight="bold"
+)
+
+ax_vector.set_xlabel("Vα")
+ax_vector.set_ylabel("Vβ")
+
+ax_vector.grid(
+    True,
+    alpha=0.35
+)
+
+ax_vector.set_xlim(-6, 6)
+ax_vector.set_ylim(-6, 6)
+
+ax_vector.legend()
 
 # ============================================================
 # EMBED MATPLOTLIB

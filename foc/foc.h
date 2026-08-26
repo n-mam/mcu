@@ -1,9 +1,9 @@
 #ifndef FOC_H
 #define FOC_H
 
+#include <foc/svpwm.h>
 #include <foc/encoder.h>
 #include <foc/current.h>
-#include <foc/svpwm.h>
 #include <foc/speed.h>
 
 inline svpwm_t g_svm;
@@ -33,19 +33,19 @@ inline void adc_injected_callback(uint16_t raw_a, uint16_t raw_b) {
     // Current control
     // ADC counts to phase currents
     current_sense_update(cs, raw_a, raw_b);
-    const encoder_prediction_t pred = encoder_predict_state();
+    const auto predicted_electrical_angle = encoder_predict_electrical_angle();
     // static uint8_t speed_loop_divider = 0;
     // if (++speed_loop_divider >= 200) {
     //     speed_loop_divider = 0;
     //     constexpr float SPEED_LOOP_DT = 1.0f / 100.0f;
-    //     speed_control_update(sc, pred.mechanical_velocity, SPEED_LOOP_DT);
+    //     speed_control_update(sc, encoder.mechanical_velocity, SPEED_LOOP_DT);
     // }
     constexpr float CURRENT_LOOP_DT = 1.0f / 20'000.0f;
     // change to predicted values for speed loop
-    current_control_update(cc, cs, pred.electrical_angle,
-            pred.electrical_velocity, CURRENT_LOOP_DT);
+    current_control_update(cc, cs, predicted_electrical_angle,
+            encoder.electrical_velocity, CURRENT_LOOP_DT);
     // voltage to pwm
-    foc_voltage_apply(cc, pred.electrical_angle);
+    foc_voltage_apply(cc, predicted_electrical_angle);
 }
 
 inline void test_foc() {
@@ -108,12 +108,12 @@ inline void test_foc() {
     // v_limit = 9.49 / sqrt(3) ≈ 5.48 V
     // so each PI can request up to ±5.48 V.
     const float v_limit = SVPWM_MAX_MODULATION * cc.vbus;
-    cc.d_pi = { .kp = kp, .ki = ki, .integrator = 0.0f, .out_min = -v_limit, .out_max = v_limit };
-    cc.q_pi = { .kp = kp, .ki = ki, .integrator = 0.0f, .out_min = -v_limit, .out_max = v_limit };
-    sc.pi = { .kp = 0.015f, .ki = 0.006f, .integrator = 0.0f, .out_min = -0.3, .out_max = 0.3 };
+    cc.d_pi = { .kp = Kp, .ki = Ki, .integrator = 0.0f, .out_min = -v_limit, .out_max = v_limit };
+    cc.q_pi = { .kp = Kp, .ki = Ki, .integrator = 0.0f, .out_min = -v_limit, .out_max = v_limit };
+    sc.pi   = { .kp = 0.015f, .ki = 0.006f, .integrator = 0.0f, .out_min = -0.3, .out_max = 0.3 };
 
     // manual hold delay
-    mcl::delay_ms(5000);
+    mcl::delay_ms(2000);
     current_loop_reset(cc);
     speed_loop_reset(sc);
 
@@ -124,7 +124,7 @@ inline void test_foc() {
     uint32_t last_cycles = DWT->CYCCNT;
 
     uint64_t last_log_cycles = 0;
-    uint64_t log_period_cycles = (uint64_t)SystemCoreClock / 2U; // 500 ms
+    uint64_t log_period_cycles = (uint64_t)SystemCoreClock / 2U;
 
     while (true) {
         uint32_t now_cycles = DWT->CYCCNT;
@@ -136,12 +136,13 @@ inline void test_foc() {
         // if (speed_command > 10.0f)
         //     speed_command = 10.0f;
         // sc.speed_ref = speed_command;
-        cc.q_ref = 0.3f;
+        cc.d_ref = 0.0f;
+        cc.q_ref = 0.1f;
         encoder_read_and_update_angles(bus);
-        // if (total_cycles - last_log_cycles >= log_period_cycles) {
-        //     last_log_cycles = total_cycles;
+        if (total_cycles - last_log_cycles >= log_period_cycles) {
+            last_log_cycles = total_cycles;
             log_foc_state(elapsed_s);
-        //}
+        }
     }
 
     timer_stop(&tm);
