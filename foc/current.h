@@ -11,8 +11,8 @@ constexpr float MOTOR_RESISTANCE = 2.3f;
 constexpr float MOTOR_INDUCTANCE_H = 0.00086f;   // L, henries, from datasheet
 const float CURRENT_BANDWIDTH = 2000.0f;
 const float WC = 2.0f * PI * CURRENT_BANDWIDTH;
-float kp = MOTOR_INDUCTANCE_H * WC;
-float ki = MOTOR_RESISTANCE * WC;
+inline float kp = MOTOR_INDUCTANCE_H * WC;
+inline float ki = MOTOR_RESISTANCE * WC;
 
 // Ke (V per mechanical rad/s) derived from KV, then divided by pole pairs
 // to get lambda (V per ELECTRICAL rad/s) -- electrical_velocity is
@@ -21,7 +21,7 @@ float ki = MOTOR_RESISTANCE * WC;
 // (spin open-loop at known speed, measure induced phase voltage,
 // lambda = V_peak / electrical_velocity).
 constexpr float MOTOR_KE = 1.0f / (MOTOR_KV * (TWO_PI / 60.0f));
-constexpr float MOTOR_LAMBDA = MOTOR_KE / (float)POLE_PAIRS * 0.50f;
+constexpr float MOTOR_LAMBDA = MOTOR_KE / (float)POLE_PAIRS;
 
 // PI controller
 struct pi_controller_t {
@@ -260,8 +260,8 @@ inline void current_control_update(current_control_t& control, current_sense_t& 
     float vq_ff =  electrical_velocity * MOTOR_INDUCTANCE_H * pt.d
                     + electrical_velocity * MOTOR_LAMBDA;
 
-    float vd = vd_pi + vd_ff;
-    float vq = vq_pi + vq_ff;
+    float vd = vd_pi;// + vd_ff;
+    float vq = vq_pi;// + vq_ff;
 
     // Limit voltage vector to linear SVPWM range.
     const float v_limit = SVPWM_MAX_MODULATION * control.vbus;
