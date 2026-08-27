@@ -40,6 +40,7 @@ struct current_control_t {
     float vd = 0.0f;
     float vq = 0.0f;
     float vbus = 9.49f;
+    float inv_vbus = 1 / 9.49f;
     float current_limit = 0.8f;
 };
 

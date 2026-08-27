@@ -83,8 +83,8 @@ inline void test_vf_drive() {
     serial::i2c bus(3, 10, 400'000, I2C2, GPIOB);
     svpwm_t calibration_svm{};
     calibration_svm.timer = &tm;
-    calibrate_encoder(bus, calibration_svm);
-
+    auto rc = calibrate_encoder(bus, calibration_svm, 9.49f);
+    if (!rc) return;
     // Read the encoder at the final calibrated rotor position.
     encoder_read_and_update_angles(bus);
     // Start the open-loop electrical field from the

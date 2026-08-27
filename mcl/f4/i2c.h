@@ -135,42 +135,133 @@ inline int8_t i2c_write(uint8_t dev_addr, uint8_t mem_addr, uint8_t *data, uint8
     return len;
 }
 
-inline int8_t i2c_read(uint8_t dev_addr, uint8_t mem_addr, uint8_t *data, uint16_t len, bool sendReg, I2C_TypeDef* I2Cx) {
-    // Start condition
+inline int8_t i2c_read(uint8_t dev_addr, uint8_t mem_addr,
+    uint8_t *data, uint16_t len, bool sendReg, I2C_TypeDef* I2Cx) {
+
+    if (len == 0) return 0;
     i2c_start(I2Cx);
     if (sendReg) {
-        // Send device address with write bit set
-        send_device_address(dev_addr, 0x00, I2Cx);
-        // Send memory address
+        // Slave address + WRITE
+        send_device_address(dev_addr, 0, I2Cx);
+        // Register / memory address
         I2Cx->DR = mem_addr;
+        // Wait until register address has actually been transferred.
         while (!(I2Cx->SR1 & I2C_SR1_BTF)) {}
-        // Repeated Start condition
+        // Repeated START
         i2c_start(I2Cx);
     }
-    // Send device address with read bit set
-    send_device_address(dev_addr, 0x01, I2Cx);
-    // Enable ACK
-    I2Cx->CR1 |= I2C_CR1_ACK;
-    // Read data
-    for (int i = 0; i < len; i++) {
-        if (i == (len - 1)) {
-            // After second last byte: Disable ACK
-            I2Cx->CR1 &= ~I2C_CR1_ACK;
-            // After second last byte: Generate Stop condition
-            i2c_stop(I2Cx);
-            // Wait for RXNE flag to be set
-            while (!(I2Cx->SR1 & I2C_SR1_RXNE)) {};
-            data[i] = I2Cx->DR;
-            // Wait for BTF flag to be set
-            while (I2Cx->SR1 & I2C_SR1_BTF) {};
-        } else {
-            // Read intermediate bytes
-            while (!(I2Cx->SR1 & I2C_SR1_RXNE)) {};
-            data[i] = I2Cx->DR;
-        }
+    // Slave address + READ
+    I2Cx->DR = (dev_addr << 1) | 1;
+    // Wait for address transmission to complete.
+    while (!(I2Cx->SR1 & I2C_SR1_ADDR)) {}
+    // 1-byte reception
+    // RM0390:
+    //  ACK = 0
+    //  clear ADDR
+    //  STOP
+    //  wait RXNE
+    //  read DR
+    // ACK must be disabled BEFORE ADDR is cleared.
+    if (len == 1) {
+        I2Cx->CR1 &= ~I2C_CR1_ACK;
+        // Clear ADDR.
+        (void)I2Cx->SR2;
+        // Generate STOP before receiving the byte.
+        I2Cx->CR1 |= I2C_CR1_STOP;
+        // Wait for received byte.
+        while (!(I2Cx->SR1 & I2C_SR1_RXNE)) {}
+        data[0] = static_cast<uint8_t>(I2Cx->DR);
+        // Restore default receive configuration.
+        I2Cx->CR1 |= I2C_CR1_ACK;
+        I2Cx->CR1 &= ~I2C_CR1_POS;
+        return 1;
     }
-    //dumpBuffer(data, len);
-    return len;
+    /*
+     * 2-byte reception
+     * THIS IS THE IMPORTANT F446 SPECIAL CASE.
+     * RM0390 specifies:
+     *   ADDR = 1
+     *       |
+     *   ACK = 0
+     *   POS = 1
+     *       |
+     *   clear ADDR
+     *       |
+     *   wait BTF = 1
+     *       |
+     *   STOP = 1
+     *       |
+     *   read DR
+     *   read DR
+     * With POS=1, ACK controls the second byte.
+     */
+    if (len == 2) {
+        // Configure this BEFORE clearing ADDR.
+        I2Cx->CR1 |= I2C_CR1_POS;
+        I2Cx->CR1 &= ~I2C_CR1_ACK;
+        // Clear ADDR.
+        (void)I2Cx->SR2;
+        // Wait until:
+        //   DR             = byte 0
+        //   shift register = byte 1
+        // SCL is stretched here.
+        while (!(I2Cx->SR1 & I2C_SR1_BTF)) {}
+        // Generate STOP BEFORE reading either byte.
+        I2Cx->CR1 |= I2C_CR1_STOP;
+        // Read both bytes back-to-back.
+        data[0] = static_cast<uint8_t>(I2Cx->DR);
+        data[1] = static_cast<uint8_t>(I2Cx->DR);
+        // Restore normal configuration.
+        I2Cx->CR1 &= ~I2C_CR1_POS;
+        I2Cx->CR1 |= I2C_CR1_ACK;
+        return 2;
+    }
+    // N > 2 reception
+    // Normal receive mode.
+    I2Cx->CR1 &= ~I2C_CR1_POS;
+    I2Cx->CR1 |= I2C_CR1_ACK;
+    // Clear ADDR.
+    (void)I2Cx->SR2;
+    uint16_t i = 0;
+    /*
+     * Receive all bytes except the final 3.
+     * We deliberately leave the final 3 bytes for the
+     * BTF/ACK/STOP sequence below.
+     */
+    while (len - i > 3) {
+        while (!(I2Cx->SR1 & I2C_SR1_RXNE)) {}
+        data[i++] = static_cast<uint8_t>(I2Cx->DR);
+    }
+    /*
+     * Final 3 bytes
+     * RM0390:
+     *   BTF
+     *   ACK = 0
+     *   read N-2
+     *   BTF
+     *   STOP
+     *   read N-1
+     *   read N
+     */
+    // Wait until N-2 is in DR and N-1 is in shift register.
+    while (!(I2Cx->SR1 & I2C_SR1_BTF)) {}
+    // NACK the final byte.
+    I2Cx->CR1 &= ~I2C_CR1_ACK;
+    // Read N-2.
+    data[i++] = static_cast<uint8_t>(I2Cx->DR);
+    // Now:
+    //   DR             = N-1
+    //   shift register = N
+    while (!(I2Cx->SR1 & I2C_SR1_BTF)) {}
+    // Generate STOP before reading the final two bytes.
+    I2Cx->CR1 |= I2C_CR1_STOP;
+    // Read N-1 and N.
+    data[i++] = static_cast<uint8_t>(I2Cx->DR);
+    data[i++] = static_cast<uint8_t>(I2Cx->DR);
+    // Restore normal receive configuration.
+    I2Cx->CR1 |= I2C_CR1_ACK;
+    I2Cx->CR1 &= ~I2C_CR1_POS;
+    return static_cast<int8_t>(len);
 }
 
 inline void i2c_bus_scan(I2C_TypeDef* I2Cx) {

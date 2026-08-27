@@ -7,16 +7,15 @@
 #include <foc/speed.h>
 
 inline svpwm_t g_svm;
-
-inline volatile bool current_loop_hold = true;
-inline volatile bool encoder_calibration_hold = true;
+enum foc_state { stopped, running, fault };
+foc_state state{ stopped };
 
 inline void foc_voltage_apply(current_control_t& cc, float electrical_angle) {
     inverse_park_transform(cc.vd, cc.vq, electrical_angle);
     // pi outputs are in volts; svpwm
     // expects Vref normalized to Vbus.
-    pt.v_alpha /= cc.vbus;
-    pt.v_beta  /= cc.vbus;
+    pt.v_alpha *= cc.inv_vbus;
+    pt.v_beta  *= cc.inv_vbus;
     svpwm_update(g_svm, pt.v_alpha, pt.v_beta);
 }
 
@@ -28,8 +27,8 @@ inline void adc_injected_callback(uint16_t raw_a, uint16_t raw_b) {
         ++cs.calibration_samples;
         return;
     }
-    // Don't run FOC during encoder calibration
-    if (encoder_calibration_hold || current_loop_hold) return;
+    // Disable FOC during encoder/zero current calibration
+    if (state != foc_state::running) return;
     // Current control
     // ADC counts to phase currents
     current_sense_update(cs, raw_a, raw_b);
@@ -79,8 +78,7 @@ inline void test_foc() {
     adc_set_config(&cfg);
 
     g_svm.timer = &tm;
-    current_loop_hold = true;
-    encoder_calibration_hold = true;
+    state = foc_state::stopped;
 
     // Zero current ADC bias calibration
     constexpr uint32_t CURRENT_BIAS_SAMPLES = 1000;
@@ -102,23 +100,22 @@ inline void test_foc() {
     serial::i2c bus(3, 10, 400'000, I2C2, GPIOB);
     svpwm_t calibration_svm{};
     calibration_svm.timer = &tm;
-    calibrate_encoder(bus, calibration_svm);
-
+    auto rc = calibrate_encoder(bus, calibration_svm, cc.vbus);
+    if (!rc) return;
     // With vbus = 9.49 V:
     // v_limit = 9.49 / sqrt(3) ≈ 5.48 V
     // so each PI can request up to ±5.48 V.
     const float v_limit = SVPWM_MAX_MODULATION * cc.vbus;
     cc.d_pi = { .kp = Kp, .ki = Ki, .integrator = 0.0f, .out_min = -v_limit, .out_max = v_limit };
     cc.q_pi = { .kp = Kp, .ki = Ki, .integrator = 0.0f, .out_min = -v_limit, .out_max = v_limit };
-    sc.pi   = { .kp = 0.015f, .ki = 0.006f, .integrator = 0.0f, .out_min = -0.3, .out_max = 0.3 };
+    sc.pi   = { .kp = 0.012f, .ki = 0.01f, .integrator = 0.0f, .out_min = -0.3, .out_max = 0.3 };
 
     // manual hold delay
     mcl::delay_ms(2000);
     current_loop_reset(cc);
     speed_loop_reset(sc);
 
-    current_loop_hold = false;
-    encoder_calibration_hold = false;
+    state = foc_state::running;
 
     uint64_t total_cycles = 0;
     uint32_t last_cycles = DWT->CYCCNT;
@@ -126,18 +123,20 @@ inline void test_foc() {
     uint64_t last_log_cycles = 0;
     uint64_t log_period_cycles = (uint64_t)SystemCoreClock / 2U;
 
+    cc.d_ref = 0.0f;
+    cc.q_ref = 0.05f;
+    float inv_SystemCoreClock = 1 / (float)SystemCoreClock;
+
     while (true) {
         uint32_t now_cycles = DWT->CYCCNT;
         total_cycles += (uint32_t)(now_cycles - last_cycles);
         last_cycles = now_cycles;
-        float elapsed_s = (float)total_cycles / (float)SystemCoreClock;
+        float elapsed_s = (float)total_cycles * inv_SystemCoreClock;
         // static float speed_command = 0;
         // speed_command += 0.002f;
-        // if (speed_command > 10.0f)
-        //     speed_command = 10.0f;
+        // if (speed_command > 6.0f)
+        //     speed_command = 6.0f;
         // sc.speed_ref = speed_command;
-        cc.d_ref = 0.0f;
-        cc.q_ref = 0.1f;
         encoder_read_and_update_angles(bus);
         if (total_cycles - last_log_cycles >= log_period_cycles) {
             last_log_cycles = total_cycles;

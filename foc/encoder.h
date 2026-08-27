@@ -87,9 +87,12 @@ inline void reset_velocity_estimator() {
 }
 
 inline uint16_t as5600_read_raw_angle(serial::i2c& bus) {
-    //todo:: 4 byte read for now because of 2-byte read bug
-    uint8_t buf[4] = {0};
-    bus.read(0x36, 0x0C, buf, 4);
+    // 2-byte reads on F446
+    // should not be interruptible
+    uint8_t buf[3] = {0};
+    //__disable_irq();
+    bus.read(0x36, 0x0C, buf, 3);
+    //__enable_irq();
     return ((uint16_t)(buf[0] & 0x0F) << 8) | buf[1];
 }
 
@@ -97,7 +100,7 @@ inline uint16_t average_encoder_raw(serial::i2c& bus) {
     uint64_t sum = 0;
     for (uint32_t i = 0; i < 100; ++i) {
         sum += as5600_read_raw_angle(bus);
-        mcl::sleep_ms(5);
+        mcl::sleep_ms(1);
     }
     return (uint16_t)(sum / 100);
 }
@@ -226,26 +229,25 @@ inline void encoder_read_and_update_angles(serial::i2c& bus) {
     encoder.last_update_cycles = DWT->CYCCNT;
 }
 
-inline void calibrate_encoder(serial::i2c& bus, svpwm_t& svm) {
+inline bool calibrate_encoder(serial::i2c& bus, svpwm_t& svm, float vbus) {
+    constexpr float CALIBRATION_VOLTAGE = 1.5f;
     // Keep the modulation relatively small. It should be large enough to
     // overcome cogging/friction, but not so large that the rotor
     // heats unnecessarily.
-    // STEP 1:
     // Force the rotor to electrical angle 0.
     // Valpha = +V
     // Vbeta  =  0
-    svpwm_update(svm, 0.15f, 0.0f);
+    svpwm_update(svm, CALIBRATION_VOLTAGE / vbus, 0.0f);
     mcl::sleep_ms(1000);
     encoder.zero_raw = average_encoder_raw(bus);
     LOG << " zero raw = " << encoder.zero_raw;
-    // STEP 2:
     // Move the electrical field +90 degrees.
     // Valpha = 0
     // Vbeta  = +V
     // If positive electrical rotation makes the encoder count
     // increase, sign = +1.
     // If it makes the encoder count decrease, sign = -1.
-    svpwm_update(svm, 0.0f, 0.15f);
+    svpwm_update(svm, 0.0f, CALIBRATION_VOLTAGE / vbus);
     mcl::sleep_ms(1000);
     const uint16_t plus_90_raw = average_encoder_raw(bus);
     const int32_t delta = encoder_signed_wrap_delta(encoder.zero_raw, plus_90_raw);
@@ -260,6 +262,7 @@ inline void calibrate_encoder(serial::i2c& bus, svpwm_t& svm) {
         encoder.sign = -1;
     } else {
         encoder.sign = 0;
+        return false;
     }
     LOG << " +90 raw = " << plus_90_raw;
     LOG << " delta = " << delta;
@@ -274,12 +277,14 @@ inline void calibrate_encoder(serial::i2c& bus, svpwm_t& svm) {
     const int32_t zero_error = encoder_signed_wrap_delta(encoder.zero_raw, zero_final);
     if (zero_error > 20 || zero_error < -20) {
         LOG << "WARNING: encoder zero moved by " << zero_error << " counts";
+        return false;
     }
     encoder.zero_raw = zero_final;
     LOG << "encoder calibration final zero = "
             << encoder.zero_raw << " sign = " << (int)encoder.sign;
     // Discard any velocity-estimator state accumulated during calibration.
     reset_velocity_estimator();
+    return true;
 }
 
 inline void test_as5600() {
@@ -287,7 +292,6 @@ inline void test_as5600() {
     while(true) {
         uint16_t raw = as5600_read_raw_angle(bus);
         LOG << " raw: " << raw;
-        mcl::sleep_ms(1);
     }
 }
 
