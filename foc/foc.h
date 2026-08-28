@@ -33,7 +33,7 @@ inline void adc_injected_callback(uint16_t raw_a, uint16_t raw_b) {
     // ADC counts to phase currents
     current_sense_update(cs, raw_a, raw_b);
     const auto predicted_electrical_angle = encoder_predict_electrical_angle();
-    // static uint8_t speed_loop_divider = 0;
+    // static uint16_t speed_loop_divider = 0;
     // if (++speed_loop_divider >= 200) {
     //     speed_loop_divider = 0;
     //     constexpr float SPEED_LOOP_DT = 1.0f / 100.0f;
@@ -45,6 +45,14 @@ inline void adc_injected_callback(uint16_t raw_a, uint16_t raw_b) {
             encoder.electrical_velocity, CURRENT_LOOP_DT);
     // voltage to pwm
     foc_voltage_apply(cc, predicted_electrical_angle);
+}
+
+serial::i2c *i2cbus = nullptr;
+void tim2_encoder_callback(timer_event_t event) {
+    if (event == TIMER_EVENT_UPDATE) {
+        // executes at 1kHz
+        encoder_read_and_update_angles(*i2cbus);
+    }
 }
 
 inline void test_foc() {
@@ -102,13 +110,29 @@ inline void test_foc() {
     calibration_svm.timer = &tm;
     auto rc = calibrate_encoder(bus, calibration_svm, cc.vbus);
     if (!rc) return;
+
+    // TIM2 encoder read setup
+    i2cbus = &bus;
+    timer_config_t tim2_cfg = {};
+    tim2_cfg.instance = TIM2;
+    tim2_cfg.mode = cms::ea;
+    tim2_cfg.interrupt_callback = tim2_encoder_callback;
+    // Configure TIM2 and make its counter clock 1 MHz
+    timer_init(&tim2_cfg);
+    // Configure update frequency = 1kHz
+    timer_set_frequency(&tim2_cfg, 1000);
+    // Register/enable TIM2 update interrupt
+    timer_enable_interrupt(&tim2_cfg);
+    // Start TIM2
+    timer_start(&tim2_cfg);
+
     // With vbus = 9.49 V:
     // v_limit = 9.49 / sqrt(3) ≈ 5.48 V
     // so each PI can request up to ±5.48 V.
     const float v_limit = SVPWM_MAX_MODULATION * cc.vbus;
     cc.d_pi = { .kp = Kp, .ki = Ki, .integrator = 0.0f, .out_min = -v_limit, .out_max = v_limit };
     cc.q_pi = { .kp = Kp, .ki = Ki, .integrator = 0.0f, .out_min = -v_limit, .out_max = v_limit };
-    sc.pi   = { .kp = 0.012f, .ki = 0.01f, .integrator = 0.0f, .out_min = -0.3, .out_max = 0.3 };
+    sc.pi   = { .kp = 0.012f, .ki = 0.001f, .integrator = 0.0f, .out_min = -0.3, .out_max = 0.3 };
 
     // manual hold delay
     mcl::delay_ms(2000);
@@ -125,6 +149,7 @@ inline void test_foc() {
 
     cc.d_ref = 0.0f;
     cc.q_ref = 0.05f;
+    //sc.speed_ref = 10.0f;
     float inv_SystemCoreClock = 1 / (float)SystemCoreClock;
 
     while (true) {
@@ -132,12 +157,8 @@ inline void test_foc() {
         total_cycles += (uint32_t)(now_cycles - last_cycles);
         last_cycles = now_cycles;
         float elapsed_s = (float)total_cycles * inv_SystemCoreClock;
-        // static float speed_command = 0;
-        // speed_command += 0.002f;
-        // if (speed_command > 6.0f)
-        //     speed_command = 6.0f;
-        // sc.speed_ref = speed_command;
-        encoder_read_and_update_angles(bus);
+        // after 30 seconds, reduce speed reference to 6 rad/s
+        // if (elapsed_s >= 30.0f) { sc.speed_ref = 6.0f; }
         if (total_cycles - last_log_cycles >= log_period_cycles) {
             last_log_cycles = total_cycles;
             log_foc_state(elapsed_s);
