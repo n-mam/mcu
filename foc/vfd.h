@@ -15,10 +15,13 @@ struct open_loop_t {
     // Should match the TIM1 update ISR rate.
     float update_frequency = 20'000.0f;   // Hz
     // Ramp configuration
-    float modulation_start = 0.15f;
-    float modulation_end   = 0.15f;
-    float frequency_start = 1.0f;
-    float frequency_end   = 1.0f;
+    float modulation_start = 0.2f;
+    float modulation_end   = 0.2f;
+    // 0.05f ultra slow works but with some jitter
+    // 0.1f works with little jitter
+    // 0.5f is butter smooth
+    float frequency_start = 0.5f;
+    float frequency_end   = 0.5f;
     // Ramp duration [s].
     float ramp_duration_s = 30.0f;
 };
@@ -32,7 +35,7 @@ inline void open_loop_update() {
     float alpha = g_open_loop.modulation * cosf(angle);
     float beta = g_open_loop.modulation * sinf(angle);
     svpwm_update(g_svpwm, alpha, beta);
-    // open-loop owns angle advancement.
+    // advance the angle based on commanded electrical frequency
     float angle_step = TWO_PI * g_open_loop.electrical_frequency /
         g_open_loop.update_frequency;
     g_open_loop.angle += angle_step;
@@ -44,6 +47,14 @@ inline void open_loop_update() {
 inline void tim1_callback_open(timer_event_t event) {
     if (!encoder_hold && event == TIMER_EVENT_UPDATE) {
         open_loop_update();
+    }
+}
+
+serial::i2c *i2c_bus = nullptr;
+void tim2_encoder_vfd_callback(timer_event_t event) {
+    if (event == TIMER_EVENT_UPDATE) {
+        // executes at 1kHz
+        encoder_read_and_update_angles(*i2c_bus);
     }
 }
 
@@ -72,9 +83,6 @@ inline void test_vf_drive() {
     g_open_loop.modulation = g_open_loop.modulation_start;
     g_open_loop.electrical_frequency = g_open_loop.frequency_start;
 
-    const uint32_t ramp_start_ms = mcl::time_ms();
-    uint32_t last_ramp_update_ms = ramp_start_ms;
-
     timer_enable_interrupt(&tm);
     encoder_hold = true;
     timer_start(&tm);
@@ -89,24 +97,37 @@ inline void test_vf_drive() {
     encoder_read_and_update_angles(bus);
     // Start the open-loop electrical field from the
     // same electrical angle as the encoder.
-    g_open_loop.angle = encoder.electrical_angle;
+    g_open_loop.angle = encoder_read->electrical_angle;
     // Discard any velocity-estimator state accumulated during calibration.
     reset_velocity_estimator();
+
+    // TIM2 encoder read setup
+    i2c_bus = &bus;
+    timer_config_t tim2_cfg = {};
+    tim2_cfg.instance = TIM2;
+    tim2_cfg.mode = cms::ea;
+    tim2_cfg.interrupt_callback = tim2_encoder_vfd_callback;
+    // Configure TIM2 and make its counter clock 1 MHz
+    timer_init(&tim2_cfg);
+    // Configure update frequency = 1kHz
+    timer_set_frequency(&tim2_cfg, 1000);
+    // Register/enable TIM2 update interrupt
+    timer_enable_interrupt(&tim2_cfg);
+    // Start TIM2
+    timer_start(&tim2_cfg);
+
+    const uint32_t ramp_start_ms = mcl::time_ms();
+    uint32_t last_ramp_update_ms = ramp_start_ms;
     // Now allow TIM1 to advance the open-loop field.
     encoder_hold = false;
-    uint32_t last_encoder_read_us = mcl::time_us();
 
     while (true) {
-        // TIM1 update interrupt and SysTick can wake the processor.
-        //__WFI();
         uint32_t now_ms = mcl::time_ms();
-        // The ramp itself is very slow compared with the 20 kHz
-        // PWM interrupt, so a 1 ms foreground update is sufficient.
+        // 1 ms foreground ramp update
         if ((uint32_t)(now_ms - last_ramp_update_ms) >= 1U) {
             float elapsed_s = (float)(now_ms - ramp_start_ms) * 0.001f;
-            // Both values use exactly the same elapsed_s.
-            // Therefore the voltage and frequency ramps are
-            // synchronized.
+            // voltage and frequency ramps are synchronized
+            // since both use the same elapsed_s
             g_open_loop.modulation =
                 ramp_linear(
                     g_open_loop.modulation_start,
@@ -121,28 +142,23 @@ inline void test_vf_drive() {
                     elapsed_s);
             last_ramp_update_ms = now_ms;
         }
-        uint32_t now_us = mcl::time_us();
-        if ((uint32_t)(now_us - last_encoder_read_us) >= ENCODER_READ_PERIOD_US) {
-            last_encoder_read_us = now_us;
-            encoder_read_and_update_angles(bus);
-        }
         static uint32_t last_log_ms = 0;
-        if ((uint32_t)(now_ms - last_log_ms) >= 10U) {
+        if ((uint32_t)(now_ms - last_log_ms) >= 500U) {
             float phase_error =
-                g_open_loop.angle - encoder.electrical_angle;
+                g_open_loop.angle - encoder_read->electrical_angle;
             // wrap phase error to [-PI, PI].
             if (phase_error > PI)
                 phase_error -= TWO_PI;
             else if (phase_error < -PI)
                 phase_error += TWO_PI;
             LOG << "mod: " << g_open_loop.modulation
-                << " ef_cmd: " << g_open_loop.electrical_frequency
+                << " cmd_ef: " << g_open_loop.electrical_frequency
                 << " cmd_ea: " << g_open_loop.angle
-                << " enc_ea: " << encoder.electrical_angle
+                << " enc_ea: " << encoder_read->electrical_angle
                 << " ph_err: " << phase_error
-                << " ma: " << encoder.mechanical_angle
-                << " wm: " << encoder.mechanical_velocity
-                << " we: " << encoder.electrical_velocity;
+                << " ma: " << encoder_read->mechanical_angle
+                << " wm: " << encoder_read->mechanical_velocity
+                << " we: " << encoder_read->electrical_velocity;
             last_log_ms = now_ms;
         }
     }

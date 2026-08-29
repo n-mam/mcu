@@ -67,23 +67,29 @@ struct mt_velocity_estimator_t {
     // measurement window.
     uint32_t window_start_cycles = 0;
     // Emit a new velocity estimate after this many counts.
-    int32_t min_count_threshold = 5;
+    int32_t min_count_threshold = 3;
     // Force an update at very low speed so velocity does
     // not remain stale forever.
     float max_wait_s = 0.05f;
     bool initialized = false;
 };
 
-inline encoder_state_t encoder;
+inline encoder_state_t encoder_a;
+inline encoder_state_t encoder_b;
+inline encoder_state_t* encoder_write = &encoder_a;
+inline encoder_state_t* encoder_read  = &encoder_b;
 inline mt_velocity_estimator_t g_mt_vel;
 
 inline void reset_velocity_estimator() {
     g_mt_vel = {};
-    encoder.mechanical_velocity = 0.0f;
-    encoder.electrical_velocity = 0.0f;
-    // Make the next encoder sample start from the current
-    // raw position, not from an old calibration/sample position.
-    encoder.previous_raw = encoder.raw;
+    encoder_a.mechanical_velocity = 0.0f;
+    encoder_a.electrical_velocity = 0.0f;
+    encoder_a.previous_raw = encoder_a.raw;
+    encoder_b.mechanical_velocity = 0.0f;
+    encoder_b.electrical_velocity = 0.0f;
+    encoder_b.previous_raw = encoder_b.raw;
+    encoder_a.last_update_cycles = DWT->CYCCNT;
+    encoder_b.last_update_cycles = encoder_a.last_update_cycles;
 }
 
 inline uint16_t as5600_read_raw_angle(serial::i2c& bus) {
@@ -176,9 +182,14 @@ inline void mt_velocity_update(int32_t delta_counts) {
         }
 
         constexpr float VELOCITY_ALPHA = 0.3f;
-        encoder.mechanical_velocity = encoder.mechanical_velocity +
-            VELOCITY_ALPHA * (velocity_raw - encoder.mechanical_velocity);
-        encoder.electrical_velocity = encoder.mechanical_velocity * (float)POLE_PAIRS;
+
+        encoder_write->mechanical_velocity =
+            encoder_write->mechanical_velocity +
+            VELOCITY_ALPHA *
+                (velocity_raw - encoder_write->mechanical_velocity);
+
+        encoder_write->electrical_velocity =
+            encoder_write->mechanical_velocity * (float)POLE_PAIRS;
         // LOG << "VEL" << " dt_us=" << (elapsed_s * 1e6f) << " counts=" << g_mt_vel.accumulated_counts
         //         << " vraw=" << velocity_raw << " wm=" << encoder.mechanical_velocity
         //             << " we=" << encoder.electrical_velocity;
@@ -191,42 +202,66 @@ inline void mt_velocity_update(int32_t delta_counts) {
 // Extrapolate encoder state forward from the last I2C sample using
 // the last measured velocity/acceleration. Called from the ADC ISR,
 // which runs far more often than the encoder is actually read.
-inline float encoder_predict_electrical_angle() {
+inline float encoder_predict_electrical_angle(
+    const encoder_state_t& encoder_state) {
+
     const float encoder_age =
-        (float)(DWT->CYCCNT - encoder.last_update_cycles) /
+        (float)(DWT->CYCCNT - encoder_state.last_update_cycles) /
             (float)SystemCoreClock;
-    float electrical_angle = encoder.electrical_angle +
-        encoder.electrical_velocity * encoder_age;
+
+    float electrical_angle =
+        encoder_state.electrical_angle +
+        encoder_state.electrical_velocity * encoder_age;
+
     electrical_angle = fmodf(electrical_angle, TWO_PI);
+
     if (electrical_angle < 0.0f) {
         electrical_angle += TWO_PI;
     }
+
     return electrical_angle;
 }
 
 inline void encoder_read_and_update_angles(serial::i2c& bus) {
-    encoder.raw = as5600_read_raw_angle(bus);
-    encoder.mechanical_angle =
+    // Start from the last published snapshot so the write buffer
+    // contains a complete, coherent state before modifying it.
+    *encoder_write = *encoder_read;
+
+    encoder_write->raw = as5600_read_raw_angle(bus);
+
+    encoder_write->mechanical_angle =
         encoder_to_mechanical_angle(
-            encoder.raw,
-            encoder.zero_raw,
-            encoder.sign);
+            encoder_write->raw,
+            encoder_write->zero_raw,
+            encoder_write->sign);
+
     float electrical_angle =
-        encoder.mechanical_angle * (float)POLE_PAIRS;
+        encoder_write->mechanical_angle * (float)POLE_PAIRS;
+
     electrical_angle = fmodf(electrical_angle, TWO_PI);
+
     if (electrical_angle < 0.0f)
         electrical_angle += TWO_PI;
-    encoder.electrical_angle = electrical_angle;
-    // Velocity estimation
+
+    encoder_write->electrical_angle = electrical_angle;
+
+    // Velocity estimation.
     // Use raw AS5600 counts directly.
     const int32_t delta_counts =
         encoder_signed_wrap_delta(
-            encoder.previous_raw,
-            encoder.raw) *
-        (int32_t)encoder.sign;
+            encoder_write->previous_raw,
+            encoder_write->raw) *
+        (int32_t)encoder_write->sign;
+
     mt_velocity_update(delta_counts);
-    encoder.previous_raw = encoder.raw;
-    encoder.last_update_cycles = DWT->CYCCNT;
+
+    encoder_write->previous_raw = encoder_write->raw;
+    encoder_write->last_update_cycles = DWT->CYCCNT;
+
+    // Publish the completely updated encoder state.
+    encoder_state_t* tmp = encoder_read;
+    encoder_read = encoder_write;
+    encoder_write = tmp;
 }
 
 inline bool calibrate_encoder(serial::i2c& bus, svpwm_t& svm, float vbus) {
@@ -239,8 +274,8 @@ inline bool calibrate_encoder(serial::i2c& bus, svpwm_t& svm, float vbus) {
     // Vbeta  =  0
     svpwm_update(svm, CALIBRATION_VOLTAGE / vbus, 0.0f);
     mcl::sleep_ms(1000);
-    encoder.zero_raw = average_encoder_raw(bus);
-    LOG << " zero raw = " << encoder.zero_raw;
+    encoder_write->zero_raw = average_encoder_raw(bus);
+    LOG << " zero raw = " << encoder_write->zero_raw;
     // Move the electrical field +90 degrees.
     // Valpha = 0
     // Vbeta  = +V
@@ -250,23 +285,23 @@ inline bool calibrate_encoder(serial::i2c& bus, svpwm_t& svm, float vbus) {
     svpwm_update(svm, 0.0f, CALIBRATION_VOLTAGE / vbus);
     mcl::sleep_ms(1000);
     const uint16_t plus_90_raw = average_encoder_raw(bus);
-    const int32_t delta = encoder_signed_wrap_delta(encoder.zero_raw, plus_90_raw);
+    const int32_t delta = encoder_signed_wrap_delta(encoder_write->zero_raw, plus_90_raw);
     // Determine direction.
     // We expect a meaningful encoder movement. If there is almost
     // no movement, calibration should fail rather than silently
     // choosing a direction.
     constexpr int32_t MIN_DIRECTION_COUNTS = 5;
     if (delta > MIN_DIRECTION_COUNTS) {
-        encoder.sign = +1;
+        encoder_write->sign = +1;
     } else if (delta < -MIN_DIRECTION_COUNTS) {
-        encoder.sign = -1;
+        encoder_write->sign = -1;
     } else {
-        encoder.sign = 0;
+        encoder_write->sign = 0;
         return false;
     }
     LOG << " +90 raw = " << plus_90_raw;
     LOG << " delta = " << delta;
-    LOG << " sign = " << (int)encoder.sign;
+    LOG << " sign = " << (int)encoder_write->sign;
     // Return to electrical zero so the rotor is left in a known state.
     svpwm_update(svm, 0.15f, 0.0f);
     mcl::sleep_ms(1000);
@@ -274,14 +309,14 @@ inline bool calibrate_encoder(serial::i2c& bus, svpwm_t& svm, float vbus) {
     // This catches cases where the rotor did not settle exactly
     // where it started.
     const uint16_t zero_final = average_encoder_raw(bus);
-    const int32_t zero_error = encoder_signed_wrap_delta(encoder.zero_raw, zero_final);
+    const int32_t zero_error = encoder_signed_wrap_delta(encoder_write->zero_raw, zero_final);
     if (zero_error > 20 || zero_error < -20) {
         LOG << "WARNING: encoder zero moved by " << zero_error << " counts";
         return false;
     }
-    encoder.zero_raw = zero_final;
+    encoder_write->zero_raw = zero_final;
     LOG << "encoder calibration final zero = "
-            << encoder.zero_raw << " sign = " << (int)encoder.sign;
+            << encoder_write->zero_raw << " sign = " << (int)encoder_write->sign;
     // Discard any velocity-estimator state accumulated during calibration.
     reset_velocity_estimator();
     return true;

@@ -32,17 +32,21 @@ inline void adc_injected_callback(uint16_t raw_a, uint16_t raw_b) {
     // Current control
     // ADC counts to phase currents
     current_sense_update(cs, raw_a, raw_b);
-    const auto predicted_electrical_angle = encoder_predict_electrical_angle();
-    // static uint16_t speed_loop_divider = 0;
-    // if (++speed_loop_divider >= 200) {
-    //     speed_loop_divider = 0;
-    //     constexpr float SPEED_LOOP_DT = 1.0f / 100.0f;
-    //     speed_control_update(sc, encoder.mechanical_velocity, SPEED_LOOP_DT);
-    // }
+
+    const encoder_state_t* enc = encoder_read;
+    const auto predicted_electrical_angle =
+        encoder_predict_electrical_angle(*enc);
+    static uint16_t speed_loop_divider = 0;
+    if (++speed_loop_divider >= 200) {
+        speed_loop_divider = 0;
+        constexpr float SPEED_LOOP_DT = 1.0f / 100.0f;
+        speed_control_update(
+            sc, enc->mechanical_velocity, SPEED_LOOP_DT);
+    }
     constexpr float CURRENT_LOOP_DT = 1.0f / 20'000.0f;
-    // change to predicted values for speed loop
-    current_control_update(cc, cs, predicted_electrical_angle,
-            encoder.electrical_velocity, CURRENT_LOOP_DT);
+    current_control_update(
+        cc, cs, predicted_electrical_angle,
+            enc->electrical_velocity, CURRENT_LOOP_DT);
     // voltage to pwm
     foc_voltage_apply(cc, predicted_electrical_angle);
 }
@@ -132,7 +136,7 @@ inline void test_foc() {
     const float v_limit = SVPWM_MAX_MODULATION * cc.vbus;
     cc.d_pi = { .kp = Kp, .ki = Ki, .integrator = 0.0f, .out_min = -v_limit, .out_max = v_limit };
     cc.q_pi = { .kp = Kp, .ki = Ki, .integrator = 0.0f, .out_min = -v_limit, .out_max = v_limit };
-    sc.pi   = { .kp = 0.012f, .ki = 0.001f, .integrator = 0.0f, .out_min = -0.3, .out_max = 0.3 };
+    sc.pi   = { .kp = 0.015f, .ki = 0.002f, .integrator = 0.0f, .out_min = -0.3, .out_max = 0.3 };
 
     // manual hold delay
     mcl::delay_ms(2000);
@@ -147,18 +151,29 @@ inline void test_foc() {
     uint64_t last_log_cycles = 0;
     uint64_t log_period_cycles = (uint64_t)SystemCoreClock / 2U;
 
-    cc.d_ref = 0.0f;
-    cc.q_ref = 0.05f;
-    //sc.speed_ref = 10.0f;
+    // cc.d_ref = 0.0f;
+    // cc.q_ref = 0.3f;
+    constexpr float SPEED_START = 15.0f;
+    float SPEED_END = 5.0f;
+    constexpr float SPEED_RAMP_DURATION_S = 30.0f;
+    sc.speed_ref = SPEED_START;
     float inv_SystemCoreClock = 1 / (float)SystemCoreClock;
+    uint32_t last_ramp_ms = mcl::time_ms();
 
     while (true) {
         uint32_t now_cycles = DWT->CYCCNT;
         total_cycles += (uint32_t)(now_cycles - last_cycles);
         last_cycles = now_cycles;
         float elapsed_s = (float)total_cycles * inv_SystemCoreClock;
-        // after 30 seconds, reduce speed reference to 6 rad/s
-        // if (elapsed_s >= 30.0f) { sc.speed_ref = 6.0f; }
+        uint32_t now_ms = mcl::time_ms();
+        if ((uint32_t)(now_ms - last_ramp_ms) >= 1U) {
+            sc.speed_ref = ramp_linear(
+                SPEED_START,
+                SPEED_END,
+                SPEED_RAMP_DURATION_S,
+                elapsed_s);
+            last_ramp_ms = now_ms;
+        }
         if (total_cycles - last_log_cycles >= log_period_cycles) {
             last_log_cycles = total_cycles;
             log_foc_state(elapsed_s);
@@ -169,11 +184,12 @@ inline void test_foc() {
 }
 
 inline void log_foc_state(float elapsed_s) {
+    const encoder_state_t* encoder = encoder_read;
     char log_buffer[512];
     int len = snprintf(log_buffer, sizeof(log_buffer),
         "theta:%f elapsed:%f s_ref:%f s_mes:%f "
         "[ia:%f ib:%f ic:%f] q_ref:%fA [d:%f q:%f] vd:%f vq:%f mod:%f d_i:%f q_i:%f s_i:%f",
-            encoder.electrical_angle, elapsed_s, sc.speed_ref, sc.speed_measured,
+            encoder->electrical_angle, elapsed_s, sc.speed_ref, sc.speed_measured,
                 cs.ia, cs.ib, cs.ic, cc.q_ref, pt.d, pt.q, cc.vd, cc.vq,
                     g_svm.modulation, cc.d_pi.integrator, cc.q_pi.integrator,
                         sc.pi.integrator);
