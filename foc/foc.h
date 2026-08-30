@@ -35,7 +35,7 @@ inline void adc_injected_callback(uint16_t raw_a, uint16_t raw_b) {
 
     const encoder_state_t* enc = encoder_read;
     const auto predicted_electrical_angle =
-        encoder_predict_electrical_angle(*enc);
+            encoder_predict_electrical_angle(*enc);
     static uint16_t speed_loop_divider = 0;
     if (++speed_loop_divider >= 200) {
         speed_loop_divider = 0;
@@ -136,7 +136,7 @@ inline void test_foc() {
     const float v_limit = SVPWM_MAX_MODULATION * cc.vbus;
     cc.d_pi = { .kp = Kp, .ki = Ki, .integrator = 0.0f, .out_min = -v_limit, .out_max = v_limit };
     cc.q_pi = { .kp = Kp, .ki = Ki, .integrator = 0.0f, .out_min = -v_limit, .out_max = v_limit };
-    sc.pi   = { .kp = 0.015f, .ki = 0.002f, .integrator = 0.0f, .out_min = -0.3, .out_max = 0.3 };
+    sc.pi   = { .kp = 0.015f, .ki = 0.001f, .integrator = 0.0f, .out_min = -0.20f, .out_max = 0.20f };
 
     // manual hold delay
     mcl::delay_ms(2000);
@@ -153,9 +153,9 @@ inline void test_foc() {
 
     // cc.d_ref = 0.0f;
     // cc.q_ref = 0.3f;
-    constexpr float SPEED_START = 15.0f;
-    float SPEED_END = 5.0f;
-    constexpr float SPEED_RAMP_DURATION_S = 30.0f;
+    constexpr float SPEED_START = 10.0f;
+    float SPEED_END = 2.0f;
+    constexpr float SPEED_RAMP_DURATION_S = 15.0f;
     sc.speed_ref = SPEED_START;
     float inv_SystemCoreClock = 1 / (float)SystemCoreClock;
     uint32_t last_ramp_ms = mcl::time_ms();
@@ -174,6 +174,19 @@ inline void test_foc() {
                 elapsed_s);
             last_ramp_ms = now_ms;
         }
+
+        // Trace capture: arm once settled at the low-speed hold,
+        // dump once the buffer fills.
+        static bool trace_armed = false;
+        if (!trace_armed && elapsed_s >= 32.0f) {
+            trace_start();
+            trace_armed = true;
+        }
+        if (g_trace_full) {
+            trace_dump();
+            g_trace_full = false;
+        }
+
         if (total_cycles - last_log_cycles >= log_period_cycles) {
             last_log_cycles = total_cycles;
             log_foc_state(elapsed_s);

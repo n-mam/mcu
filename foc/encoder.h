@@ -1,16 +1,15 @@
 #ifndef ENCODER_H
 #define ENCODER_H
 
+#include <foc/trace.h>
+
 // DFRobot 2804, 12N/14P
 constexpr uint32_t POLE_PAIRS = 7;
 constexpr float AS5600_COUNTS = 4096.0f;
-inline constexpr uint32_t ENCODER_READ_PERIOD_US = 1'000; // 1 kHz
-// tune: lower = smoother but more lag
 constexpr float AS5600_COUNT_TO_RAD = TWO_PI / AS5600_COUNTS;
 
 struct encoder_state_t {
-    // Calibration
-    // we want to determine two things
+    // Calibration: we want to determine two things
     // Zero — where is the encoder when the motor is at electrical angle 0?
     // Sign — when we command positive electrical rotation, does the encoder count go up or down?
     // +1: encoder count increases with positive electrical rotation
@@ -40,56 +39,37 @@ struct encoder_state_t {
     bool velocity_valid = false;
 };
 
-// M/T-style velocity estimator for the AS5600 (absolute, I2C, 12-bit).
-// WHY: computing delta_angle / delta_time on every single encoder read
-// is dominated by +/-1 LSB quantization noise whenever dt happens to be
-// short (which it often is in a busy foreground loop with no fixed
-// sample period). One AS5600 count is ~1.53 mrad mechanical; dividing
-// that by a sub-millisecond dt gives velocity spikes of many rad/s, and
-// zero-count reads give exact-zero readings. That's the noisy,
-// sign-flipping "we"/"wm" you're seeing in the log.
-//
-// FIX: instead of computing a new velocity sample on every read,
-// accumulate the (unwrapped) angle delta across reads and only emit a
-// new velocity estimate once the accumulated rotation exceeds a
-// meaningful threshold (a handful of counts) -- or a max-wait timeout
-// expires, so the estimate still updates at near-zero speed instead of
-// freezing. The elapsed time is still measured precisely via
-// DWT->CYCCNT, so there's no timing quantization -- only the position
-// quantization remains, and it's now a small fraction of a much larger
-// numerator, so the relative noise drops a lot.
-
-struct mt_velocity_estimator_t {
-    // Accumulated signed AS5600 counts since the last
-    // emitted velocity estimate.
-    int32_t accumulated_counts = 0;
-    // DWT cycle count at the beginning of the current
-    // measurement window.
-    uint32_t window_start_cycles = 0;
-    // Emit a new velocity estimate after this many counts.
-    int32_t min_count_threshold = 3;
-    // Force an update at very low speed so velocity does
-    // not remain stale forever.
-    float max_wait_s = 0.05f;
+struct velocity_estimator_t {
+    float filtered_velocity = 0.0f;
+    float time_constant_s = 0.003f;
     bool initialized = false;
+    // Trace-only.
+    float raw_velocity = 0.0f;
+    // Long-baseline velocity estimation.
+    static constexpr uint32_t BASELINE_SAMPLES = 4; //4
+    uint16_t angle_history[BASELINE_SAMPLES] = {};
+    uint32_t cycle_history[BASELINE_SAMPLES] = {};
+    uint32_t history_index = 0;
+    uint32_t history_count = 0;
 };
 
 inline encoder_state_t encoder_a;
 inline encoder_state_t encoder_b;
 inline encoder_state_t* encoder_write = &encoder_a;
 inline encoder_state_t* encoder_read  = &encoder_b;
-inline mt_velocity_estimator_t g_mt_vel;
+inline velocity_estimator_t g_vel_est;
 
 inline void reset_velocity_estimator() {
-    g_mt_vel = {};
+    g_vel_est = {};
     encoder_a.mechanical_velocity = 0.0f;
     encoder_a.electrical_velocity = 0.0f;
     encoder_a.previous_raw = encoder_a.raw;
     encoder_b.mechanical_velocity = 0.0f;
     encoder_b.electrical_velocity = 0.0f;
     encoder_b.previous_raw = encoder_b.raw;
-    encoder_a.last_update_cycles = DWT->CYCCNT;
-    encoder_b.last_update_cycles = encoder_a.last_update_cycles;
+    const uint32_t now = DWT->CYCCNT;
+    encoder_a.last_update_cycles = now;
+    encoder_b.last_update_cycles = now;
 }
 
 inline uint16_t as5600_read_raw_angle(serial::i2c& bus) {
@@ -138,65 +118,93 @@ inline float encoder_to_mechanical_angle(
     return angle * TWO_PI;
 }
 
-// Call this once per encoder read with the *unwrapped* mechanical angle
-// delta since the previous call (same +/-PI unwrap logic you already
-// have for delta_angle). It internally decides whether enough new
-// information has accumulated to actually update
-// encoder.mechanical_velocity / encoder.electrical_velocity.
-inline void mt_velocity_update(int32_t delta_counts) {
+// Finite-difference velocity, low-pass filtered with alpha derived
+// from the *measured* dt so the filter's real-time cutoff stays fixed
+// regardless of timer jitter -- unlike a fixed per-call alpha, which
+// drifts if dt ever varies.
+inline void fd_velocity_update(uint16_t raw_angle, uint32_t now_cycles) {
 
-    const uint32_t now_cycles = DWT->CYCCNT;
-
-    if (!g_mt_vel.initialized) {
-        g_mt_vel.initialized = true;
-        g_mt_vel.window_start_cycles = now_cycles;
-        g_mt_vel.accumulated_counts = 0;
+    auto& ve = g_vel_est;
+    // First sample after reset.
+    if (ve.history_count == 0) {
+        ve.angle_history[0] = raw_angle;
+        ve.cycle_history[0] = now_cycles;
+        ve.history_index = 1;
+        ve.history_count = 1;
+        ve.initialized = false;
+        ve.raw_velocity = 0.0f;
         return;
     }
 
-    g_mt_vel.accumulated_counts += delta_counts;
+    // Store current sample.
+    const uint32_t current_index = ve.history_index;
 
-    const uint32_t elapsed_cycles =
-        now_cycles - g_mt_vel.window_start_cycles;
+    ve.angle_history[current_index] = raw_angle;
+    ve.cycle_history[current_index] = now_cycles;
 
-    const float elapsed_s =
-        (float)elapsed_cycles / (float)SystemCoreClock;
+    ve.history_index =
+        (ve.history_index + 1) % velocity_estimator_t::BASELINE_SAMPLES;
 
-    const bool count_threshold_met =
-        abs(g_mt_vel.accumulated_counts) >= g_mt_vel.min_count_threshold;
-
-    const bool timed_out = elapsed_s >= g_mt_vel.max_wait_s;
-
-    if (!count_threshold_met && !timed_out) return;
-
-    if (elapsed_s > 1e-5f) {
-        float velocity_raw = 0.0f;
-        // At timeout, if there has been no encoder movement,
-        // explicitly drive the estimate toward zero.
-        if (timed_out && g_mt_vel.accumulated_counts == 0) {
-            velocity_raw = 0.0f;
-        } else {
-            const float accumulated_angle =
-                (float)g_mt_vel.accumulated_counts * AS5600_COUNT_TO_RAD;
-            velocity_raw = accumulated_angle / elapsed_s;
-        }
-
-        constexpr float VELOCITY_ALPHA = 0.3f;
-
-        encoder_write->mechanical_velocity =
-            encoder_write->mechanical_velocity +
-            VELOCITY_ALPHA *
-                (velocity_raw - encoder_write->mechanical_velocity);
-
-        encoder_write->electrical_velocity =
-            encoder_write->mechanical_velocity * (float)POLE_PAIRS;
-        // LOG << "VEL" << " dt_us=" << (elapsed_s * 1e6f) << " counts=" << g_mt_vel.accumulated_counts
-        //         << " vraw=" << velocity_raw << " wm=" << encoder.mechanical_velocity
-        //             << " we=" << encoder.electrical_velocity;
+    if (ve.history_count <
+        velocity_estimator_t::BASELINE_SAMPLES) {
+        ++ve.history_count;
     }
-    // Start a new measurement window.
-    g_mt_vel.accumulated_counts = 0;
-    g_mt_vel.window_start_cycles = now_cycles;
+
+    // We need a complete 4-sample baseline.
+    if (ve.history_count <
+        velocity_estimator_t::BASELINE_SAMPLES) {
+        ve.raw_velocity = 0.0f;
+        return;
+    }
+
+    // history_index now points to the oldest sample.
+    const uint32_t oldest_index = ve.history_index;
+
+    const uint16_t oldest_angle =
+        ve.angle_history[oldest_index];
+
+    const uint32_t oldest_cycles =
+        ve.cycle_history[oldest_index];
+
+    const int32_t delta_counts =
+        encoder_signed_wrap_delta(
+            oldest_angle,
+            raw_angle) *
+        (int32_t)encoder_write->sign;
+
+    const float dt_s =
+        (float)(now_cycles - oldest_cycles) /
+        (float)SystemCoreClock;
+
+    if (dt_s <= 1e-6f) {
+        ve.raw_velocity = 0.0f;
+        return;
+    }
+
+    const float angle_delta =
+        (float)delta_counts * AS5600_COUNT_TO_RAD;
+
+    ve.raw_velocity = angle_delta / dt_s;
+
+    // First-order low-pass filter.
+    const float alpha =
+        dt_s / (ve.time_constant_s + dt_s);
+
+    if (!ve.initialized) {
+        ve.filtered_velocity = ve.raw_velocity;
+        ve.initialized = true;
+    } else {
+        ve.filtered_velocity +=
+            alpha *
+            (ve.raw_velocity - ve.filtered_velocity);
+    }
+
+    encoder_write->mechanical_velocity =
+        ve.filtered_velocity;
+
+    encoder_write->electrical_velocity =
+        ve.filtered_velocity *
+        (float)POLE_PAIRS;
 }
 
 // Extrapolate encoder state forward from the last I2C sample using
@@ -223,6 +231,7 @@ inline float encoder_predict_electrical_angle(
 }
 
 inline void encoder_read_and_update_angles(serial::i2c& bus) {
+
     // Start from the last published snapshot so the write buffer
     // contains a complete, coherent state before modifying it.
     *encoder_write = *encoder_read;
@@ -246,17 +255,16 @@ inline void encoder_read_and_update_angles(serial::i2c& bus) {
     encoder_write->electrical_angle = electrical_angle;
 
     // Velocity estimation.
-    // Use raw AS5600 counts directly.
-    const int32_t delta_counts =
-        encoder_signed_wrap_delta(
-            encoder_write->previous_raw,
-            encoder_write->raw) *
-        (int32_t)encoder_write->sign;
+    const uint32_t now_cycles = DWT->CYCCNT;
 
-    mt_velocity_update(delta_counts);
+    fd_velocity_update(encoder_write->raw, now_cycles);
+
+    // trace_push(encoder_write->raw, delta_counts, dt_s,
+    //            g_vel_est.raw_velocity, g_vel_est.filtered_velocity,
+    //            encoder_write->electrical_angle);
 
     encoder_write->previous_raw = encoder_write->raw;
-    encoder_write->last_update_cycles = DWT->CYCCNT;
+    encoder_write->last_update_cycles = now_cycles;
 
     // Publish the completely updated encoder state.
     encoder_state_t* tmp = encoder_read;
@@ -317,6 +325,7 @@ inline bool calibrate_encoder(serial::i2c& bus, svpwm_t& svm, float vbus) {
     encoder_write->zero_raw = zero_final;
     LOG << "encoder calibration final zero = "
             << encoder_write->zero_raw << " sign = " << (int)encoder_write->sign;
+    *encoder_read = *encoder_write;
     // Discard any velocity-estimator state accumulated during calibration.
     reset_velocity_estimator();
     return true;
