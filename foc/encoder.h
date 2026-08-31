@@ -41,16 +41,10 @@ struct encoder_state_t {
 
 struct velocity_estimator_t {
     float filtered_velocity = 0.0f;
-    float time_constant_s = 0.003f;
+    float time_constant_s = 0.005f;
     bool initialized = false;
     // Trace-only.
     float raw_velocity = 0.0f;
-    // Long-baseline velocity estimation.
-    static constexpr uint32_t BASELINE_SAMPLES = 4; //4
-    uint16_t angle_history[BASELINE_SAMPLES] = {};
-    uint32_t cycle_history[BASELINE_SAMPLES] = {};
-    uint32_t history_index = 0;
-    uint32_t history_count = 0;
 };
 
 inline encoder_state_t encoder_a;
@@ -118,100 +112,32 @@ inline float encoder_to_mechanical_angle(
     return angle * TWO_PI;
 }
 
-// Finite-difference velocity, low-pass filtered with alpha derived
-// from the *measured* dt so the filter's real-time cutoff stays fixed
-// regardless of timer jitter -- unlike a fixed per-call alpha, which
-// drifts if dt ever varies.
-inline void fd_velocity_update(uint16_t raw_angle, uint32_t now_cycles) {
+// Plain per-tick finite difference + first-order low-pass, velocity
+// estimator. the longer filter tau does the noise/lag tradeoff work
+inline void fd_velocity_update(int32_t delta_counts, float dt_s) {
 
-    auto& ve = g_vel_est;
-    // First sample after reset.
-    if (ve.history_count == 0) {
-        ve.angle_history[0] = raw_angle;
-        ve.cycle_history[0] = now_cycles;
-        ve.history_index = 1;
-        ve.history_count = 1;
-        ve.initialized = false;
-        ve.raw_velocity = 0.0f;
+    if (!g_vel_est.initialized || dt_s <= 1e-6f) {
+        g_vel_est.initialized = true;
+        g_vel_est.raw_velocity = 0.0f;
         return;
     }
 
-    // Store current sample.
-    const uint32_t current_index = ve.history_index;
+    const float angle_delta = (float)delta_counts * AS5600_COUNT_TO_RAD;
+    g_vel_est.raw_velocity = angle_delta / dt_s;
 
-    ve.angle_history[current_index] = raw_angle;
-    ve.cycle_history[current_index] = now_cycles;
+    const float alpha = dt_s / (g_vel_est.time_constant_s + dt_s);
+    g_vel_est.filtered_velocity +=
+        alpha * (g_vel_est.raw_velocity - g_vel_est.filtered_velocity);
 
-    ve.history_index =
-        (ve.history_index + 1) % velocity_estimator_t::BASELINE_SAMPLES;
-
-    if (ve.history_count <
-        velocity_estimator_t::BASELINE_SAMPLES) {
-        ++ve.history_count;
-    }
-
-    // We need a complete 4-sample baseline.
-    if (ve.history_count <
-        velocity_estimator_t::BASELINE_SAMPLES) {
-        ve.raw_velocity = 0.0f;
-        return;
-    }
-
-    // history_index now points to the oldest sample.
-    const uint32_t oldest_index = ve.history_index;
-
-    const uint16_t oldest_angle =
-        ve.angle_history[oldest_index];
-
-    const uint32_t oldest_cycles =
-        ve.cycle_history[oldest_index];
-
-    const int32_t delta_counts =
-        encoder_signed_wrap_delta(
-            oldest_angle,
-            raw_angle) *
-        (int32_t)encoder_write->sign;
-
-    const float dt_s =
-        (float)(now_cycles - oldest_cycles) /
-        (float)SystemCoreClock;
-
-    if (dt_s <= 1e-6f) {
-        ve.raw_velocity = 0.0f;
-        return;
-    }
-
-    const float angle_delta =
-        (float)delta_counts * AS5600_COUNT_TO_RAD;
-
-    ve.raw_velocity = angle_delta / dt_s;
-
-    // First-order low-pass filter.
-    const float alpha =
-        dt_s / (ve.time_constant_s + dt_s);
-
-    if (!ve.initialized) {
-        ve.filtered_velocity = ve.raw_velocity;
-        ve.initialized = true;
-    } else {
-        ve.filtered_velocity +=
-            alpha *
-            (ve.raw_velocity - ve.filtered_velocity);
-    }
-
-    encoder_write->mechanical_velocity =
-        ve.filtered_velocity;
-
+    encoder_write->mechanical_velocity = g_vel_est.filtered_velocity;
     encoder_write->electrical_velocity =
-        ve.filtered_velocity *
-        (float)POLE_PAIRS;
+        g_vel_est.filtered_velocity * (float)POLE_PAIRS;
 }
 
 // Extrapolate encoder state forward from the last I2C sample using
 // the last measured velocity/acceleration. Called from the ADC ISR,
 // which runs far more often than the encoder is actually read.
-inline float encoder_predict_electrical_angle(
-    const encoder_state_t& encoder_state) {
+inline float encoder_predict_electrical_angle(const encoder_state_t& encoder_state) {
 
     const float encoder_age =
         (float)(DWT->CYCCNT - encoder_state.last_update_cycles) /
@@ -254,10 +180,20 @@ inline void encoder_read_and_update_angles(serial::i2c& bus) {
 
     encoder_write->electrical_angle = electrical_angle;
 
-    // Velocity estimation.
+    // Velocity estimation
+    const int32_t delta_counts =
+        encoder_signed_wrap_delta(
+            encoder_write->previous_raw,
+            encoder_write->raw) *
+        (int32_t)encoder_write->sign;
+
     const uint32_t now_cycles = DWT->CYCCNT;
 
-    fd_velocity_update(encoder_write->raw, now_cycles);
+    const float dt_s =
+        (float)(now_cycles - encoder_write->last_update_cycles) /
+            (float)SystemCoreClock;
+
+    fd_velocity_update(delta_counts, dt_s);
 
     // trace_push(encoder_write->raw, delta_counts, dt_s,
     //            g_vel_est.raw_velocity, g_vel_est.filtered_velocity,

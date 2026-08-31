@@ -37,9 +37,9 @@ inline void adc_injected_callback(uint16_t raw_a, uint16_t raw_b) {
     const auto predicted_electrical_angle =
             encoder_predict_electrical_angle(*enc);
     static uint16_t speed_loop_divider = 0;
-    if (++speed_loop_divider >= 200) {
+    if (++speed_loop_divider >= 10) {
         speed_loop_divider = 0;
-        constexpr float SPEED_LOOP_DT = 1.0f / 100.0f;
+        constexpr float SPEED_LOOP_DT = 0.010f;
         speed_control_update(
             sc, enc->mechanical_velocity, SPEED_LOOP_DT);
     }
@@ -136,7 +136,7 @@ inline void test_foc() {
     const float v_limit = SVPWM_MAX_MODULATION * cc.vbus;
     cc.d_pi = { .kp = Kp, .ki = Ki, .integrator = 0.0f, .out_min = -v_limit, .out_max = v_limit };
     cc.q_pi = { .kp = Kp, .ki = Ki, .integrator = 0.0f, .out_min = -v_limit, .out_max = v_limit };
-    sc.pi   = { .kp = 0.015f, .ki = 0.001f, .integrator = 0.0f, .out_min = -0.20f, .out_max = 0.20f };
+    sc.pi   = { .kp = 0.03f, .ki = 0.07f, .integrator = 0.0f, .out_min = -0.30f, .out_max = 0.30f };
 
     // manual hold delay
     mcl::delay_ms(2000);
@@ -154,7 +154,7 @@ inline void test_foc() {
     // cc.d_ref = 0.0f;
     // cc.q_ref = 0.3f;
     constexpr float SPEED_START = 10.0f;
-    float SPEED_END = 2.0f;
+    float SPEED_END = 0.5f;
     constexpr float SPEED_RAMP_DURATION_S = 15.0f;
     sc.speed_ref = SPEED_START;
     float inv_SystemCoreClock = 1 / (float)SystemCoreClock;
