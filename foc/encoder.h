@@ -1,8 +1,6 @@
 #ifndef ENCODER_H
 #define ENCODER_H
 
-#include <foc/trace.h>
-
 // DFRobot 2804, 12N/14P
 constexpr uint32_t POLE_PAIRS = 7;
 constexpr float AS5600_COUNTS = 4096.0f;
@@ -216,7 +214,7 @@ inline bool calibrate_encoder(serial::i2c& bus, svpwm_t& svm, float vbus) {
     // Force the rotor to electrical angle 0.
     // Valpha = +V
     // Vbeta  =  0
-    svpwm_update(svm, CALIBRATION_VOLTAGE / vbus, 0.0f);
+    voltage_to_timer_pwm(svm.timer, CALIBRATION_VOLTAGE / vbus, 0.0f);
     mcl::sleep_ms(1000);
     encoder_write->zero_raw = average_encoder_raw(bus);
     LOG << " zero raw = " << encoder_write->zero_raw;
@@ -226,7 +224,7 @@ inline bool calibrate_encoder(serial::i2c& bus, svpwm_t& svm, float vbus) {
     // If positive electrical rotation makes the encoder count
     // increase, sign = +1.
     // If it makes the encoder count decrease, sign = -1.
-    svpwm_update(svm, 0.0f, CALIBRATION_VOLTAGE / vbus);
+    voltage_to_timer_pwm(svm.timer, 0.0f, CALIBRATION_VOLTAGE / vbus);
     mcl::sleep_ms(1000);
     const uint16_t plus_90_raw = average_encoder_raw(bus);
     const int32_t delta = encoder_signed_wrap_delta(encoder_write->zero_raw, plus_90_raw);
@@ -247,7 +245,7 @@ inline bool calibrate_encoder(serial::i2c& bus, svpwm_t& svm, float vbus) {
     LOG << " delta = " << delta;
     LOG << " sign = " << (int)encoder_write->sign;
     // Return to electrical zero so the rotor is left in a known state.
-    svpwm_update(svm, 0.15f, 0.0f);
+    voltage_to_timer_pwm(svm.timer, CALIBRATION_VOLTAGE / vbus, 0.0f);
     mcl::sleep_ms(1000);
     // Re-sample zero after returning.
     // This catches cases where the rotor did not settle exactly

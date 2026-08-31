@@ -1,6 +1,8 @@
 #ifndef SVPWM_H
 #define SVPWM_H
 
+#include <tuple>
+
 constexpr float PI = 3.14159265359f;
 constexpr float PI_OVER_3 = PI / 3.0f;
 constexpr float TWO_PI = 2.0f * PI;
@@ -25,19 +27,19 @@ struct svpwm_t {
 // - calculates sector
 // - calculates T1/T2/T0
 // - calculates Ta/Tb/Tc
-// - writes CCR1/CCR2/CCR3
-inline void svpwm_update(svpwm_t &svpwm, float alpha, float beta) {
+// - returns Ta/Tb/Tc
+inline auto svpwm_update(float alpha, float beta) {
     // Convert alpha/beta vector to magnitude and angle.
     float modulation = sqrtf(alpha * alpha + beta * beta);
     if (modulation > SVPWM_MAX_MODULATION) {
         modulation = SVPWM_MAX_MODULATION;
     }
-    svpwm.modulation = modulation;
+    //svpwm.modulation = modulation;
     float theta = atan2f(beta, alpha);
     if (theta < 0.0f) {
         theta += TWO_PI;
     }
-    svpwm.angle = theta;
+    //svpwm.angle = theta;
     int sector = (int)(theta / PI_OVER_3);
     if (sector >= 6) {
         sector = 5;
@@ -92,10 +94,16 @@ inline void svpwm_update(svpwm_t &svpwm, float alpha, float beta) {
     Ta = fminf(fmaxf(Ta, 0.0f), 1.0f);
     Tb = fminf(fmaxf(Tb, 0.0f), 1.0f);
     Tc = fminf(fmaxf(Tc, 0.0f), 1.0f);
-    uint32_t arr = svpwm.timer->arr + 1U;
-    svpwm.timer->instance->CCR1 = (uint32_t)(Ta * (float)arr);
-    svpwm.timer->instance->CCR2 = (uint32_t)(Tb * (float)arr);
-    svpwm.timer->instance->CCR3 = (uint32_t)(Tc * (float)arr);
+    return std::make_tuple(Ta, Tb, Tc);
+}
+
+// voltage to pwm
+void voltage_to_timer_pwm(timer_config_t *timer, float alpha, float beta) {
+    auto [Ta, Tb, Tc] = svpwm_update(alpha, beta);
+    uint32_t arr = timer->arr + 1U;
+    timer->instance->CCR1 = (uint32_t)(Ta * (float)arr);
+    timer->instance->CCR2 = (uint32_t)(Tb * (float)arr);
+    timer->instance->CCR3 = (uint32_t)(Tc * (float)arr);
 }
 
 inline float ramp_linear(float start, float end,

@@ -6,49 +6,46 @@
 #include <foc/current.h>
 #include <foc/speed.h>
 
-inline svpwm_t g_svm;
+inline svpwm_t svpwm;
 enum foc_state { stopped, running, fault };
 foc_state state{ stopped };
 
-inline void foc_voltage_apply(current_control_t& cc, float electrical_angle) {
-    inverse_park_transform(cc.vd, cc.vq, electrical_angle);
-    // pi outputs are in volts; svpwm
-    // expects Vref normalized to Vbus.
-    pt.v_alpha *= cc.inv_vbus;
-    pt.v_beta  *= cc.inv_vbus;
-    svpwm_update(g_svm, pt.v_alpha, pt.v_beta);
-}
-
 inline void adc_injected_callback(uint16_t raw_a, uint16_t raw_b) {
-    // zero-current calibration
-    if (cs.calibrating) {
-        cs.calibration_sum_a += raw_a;
-        cs.calibration_sum_b += raw_b;
-        ++cs.calibration_samples;
+    // Disable FOC during encoder/zero current calibration
+    if (state != foc_state::running) {
+        // zero-current calibration
+        if (cs.calibrating) {
+            cs.calibration_sum_a += raw_a;
+            cs.calibration_sum_b += raw_b;
+            ++cs.calibration_samples;
+        }
         return;
     }
-    // Disable FOC during encoder/zero current calibration
-    if (state != foc_state::running) return;
-    // Current control
     // ADC counts to phase currents
     current_sense_update(cs, raw_a, raw_b);
-
-    const encoder_state_t* enc = encoder_read;
-    const auto predicted_electrical_angle =
-            encoder_predict_electrical_angle(*enc);
+    // Predicted angle
+    const encoder_state_t* encoder = encoder_read;
+    const auto electrical_angle =
+            encoder_predict_electrical_angle(*encoder);
+    // Speed control
     static uint16_t speed_loop_divider = 0;
     if (++speed_loop_divider >= 10) {
         speed_loop_divider = 0;
         constexpr float SPEED_LOOP_DT = 0.0005f;
         speed_control_update(
-            sc, enc->mechanical_velocity, SPEED_LOOP_DT);
+            sc, encoder->mechanical_velocity, SPEED_LOOP_DT);
     }
+    // Current control
     constexpr float CURRENT_LOOP_DT = 1.0f / 20'000.0f;
-    current_control_update(
-        cc, cs, predicted_electrical_angle,
-            enc->electrical_velocity, CURRENT_LOOP_DT);
-    // voltage to pwm
-    foc_voltage_apply(cc, predicted_electrical_angle);
+    auto dq = current_control_update(cc, cs, electrical_angle,
+            encoder->electrical_velocity, CURRENT_LOOP_DT);
+
+    auto ab = inverse_park_transform(dq, electrical_angle);
+    // PI outputs are in volts; svpwm
+    // expects Vref normalized to Vbus.
+    ab.alpha *= cc.inv_vbus;
+    ab.beta  *= cc.inv_vbus;
+    voltage_to_timer_pwm(svpwm.timer, ab.alpha, ab.beta);
 }
 
 serial::i2c *i2cbus = nullptr;
@@ -89,7 +86,7 @@ inline void test_foc() {
     cfg._interrupt_callback_injected = adc_injected_callback;
     adc_set_config(&cfg);
 
-    g_svm.timer = &tm;
+    svpwm.timer = &tm;
     state = foc_state::stopped;
 
     // Zero current ADC bias calibration
@@ -154,7 +151,7 @@ inline void test_foc() {
     // cc.d_ref = 0.0f;
     // cc.q_ref = 0.3f;
     constexpr float SPEED_START = 10.0f;
-    float SPEED_END = 0.5f;
+    float SPEED_END = 0.5f; // 0.25f; OK
     constexpr float SPEED_RAMP_DURATION_S = 15.0f;
     sc.speed_ref = SPEED_START;
     float inv_SystemCoreClock = 1 / (float)SystemCoreClock;
@@ -166,6 +163,7 @@ inline void test_foc() {
         last_cycles = now_cycles;
         float elapsed_s = (float)total_cycles * inv_SystemCoreClock;
         uint32_t now_ms = mcl::time_ms();
+
         if ((uint32_t)(now_ms - last_ramp_ms) >= 1U) {
             sc.speed_ref = ramp_linear(
                 SPEED_START,
@@ -173,18 +171,6 @@ inline void test_foc() {
                 SPEED_RAMP_DURATION_S,
                 elapsed_s);
             last_ramp_ms = now_ms;
-        }
-
-        // Trace capture: arm once settled at the low-speed hold,
-        // dump once the buffer fills.
-        static bool trace_armed = false;
-        if (!trace_armed && elapsed_s >= 32.0f) {
-            trace_start();
-            trace_armed = true;
-        }
-        if (g_trace_full) {
-            trace_dump();
-            g_trace_full = false;
         }
 
         if (total_cycles - last_log_cycles >= log_period_cycles) {
@@ -201,10 +187,10 @@ inline void log_foc_state(float elapsed_s) {
     char log_buffer[512];
     int len = snprintf(log_buffer, sizeof(log_buffer),
         "theta:%f elapsed:%f s_ref:%f s_mes:%f "
-        "[ia:%f ib:%f ic:%f] q_ref:%fA [d:%f q:%f] vd:%f vq:%f mod:%f d_i:%f q_i:%f s_i:%f",
+        "[ia:%f ib:%f ic:%f] q_ref:%fA [id:%f iq:%f] [vd:%f vq:%f] mod:%f vd_i:%f vq_i:%f s_i:%f",
             encoder->electrical_angle, elapsed_s, sc.speed_ref, sc.speed_measured,
-                cs.ia, cs.ib, cs.ic, cc.q_ref, pt.d, pt.q, cc.vd, cc.vq,
-                    g_svm.modulation, cc.d_pi.integrator, cc.q_pi.integrator,
+                cs.ia, cs.ib, cs.ic, cc.q_ref, cc.id, cc.iq, cc.vd, cc.vq,
+                    svpwm.modulation, cc.d_pi.integrator, cc.q_pi.integrator,
                         sc.pi.integrator);
     if (len > 0) {
         if (len >= sizeof(log_buffer)) len = sizeof(log_buffer) - 1;

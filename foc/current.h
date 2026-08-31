@@ -1,6 +1,8 @@
 #ifndef CURRENT_H
 #define CURRENT_H
 
+#include <foc/transforms.h>
+
 constexpr float ADC_VREF   = 3.3f;
 constexpr float CSA_GAIN   = 50.0f;      // V/V, INA240A2
 constexpr float R_SHUNT    = 0.010f;     // 10 mill ohms
@@ -37,23 +39,13 @@ struct current_control_t {
     pi_controller_t q_pi;
     float d_ref = 0.0f;
     float q_ref = 0.0f;
+    float id = 0.0f;
+    float iq = 0.0f;
     float vd = 0.0f;
     float vq = 0.0f;
     float vbus = 9.49f;
-    float inv_vbus = 1 / 9.49f;
+    float inv_vbus = 1 / vbus;
     float current_limit = 0.8f;
-};
-
-struct phase_transforms_t {
-    // stationary frame
-    float alpha = 0.0f;
-    float beta = 0.0f;
-    // rotating frame
-    float d = 0.0f;
-    float q = 0.0f;
-    // Inverse Park outputs
-    float v_alpha = 0.0f;
-    float v_beta  = 0.0f;
 };
 
 struct current_sense_t {
@@ -76,7 +68,6 @@ struct current_sense_t {
 
 inline current_sense_t cs;
 inline current_control_t cc;
-inline phase_transforms_t pt;
 
 inline void current_bias_calibration_start() {
     cs.calibration_samples = 0;
@@ -184,28 +175,6 @@ inline float adc_to_phase_amps(uint16_t raw, float v_bias) {
     return (v_adc - v_bias) / (CSA_GAIN * R_SHUNT);
 }
 
-inline void clarke_transform(float ia, float ib, float ic) {
-    constexpr float ONE_THIRD = 1.0f / 3.0f;
-    // amplitude-invariant Clarke transformation
-    // uses all 3 measured/reconstructed phases
-    pt.alpha = (2.0f * ia - ib - ic) * ONE_THIRD;
-    pt.beta  = (ib - ic) * (1.0f / SQRT3);
-}
-
-inline void park_transform(float alpha, float beta, float electrical_angle) {
-    float c = cosf(electrical_angle);
-    float s = sinf(electrical_angle);
-    pt.d =  alpha * c + beta * s;
-    pt.q = -alpha * s + beta * c;
-}
-
-inline void inverse_park_transform(float vd, float vq, float electrical_angle) {
-    const float c = cosf(electrical_angle);
-    const float s = sinf(electrical_angle);
-    pt.v_alpha = vd * c - vq * s;
-    pt.v_beta  = vd * s + vq * c;
-}
-
 inline float pi_update(pi_controller_t &pi, float error, float dt) {
     pi.integrator += pi.ki * error * dt;
     if (pi.integrator > pi.out_max) pi.integrator = pi.out_max;
@@ -229,9 +198,6 @@ inline void current_loop_reset(current_control_t &cc) {
 //     ADC counts to amps
 // current_control_update()
 //     amps to dq to PI to voltage
-// svpwm_apply()
-//     voltage vector to PWM
-
 inline void current_sense_update(
         current_sense_t& sense, uint16_t raw_a, uint16_t raw_b) {
     sense.raw_a = raw_a;
@@ -241,29 +207,30 @@ inline void current_sense_update(
     sense.ic = -(sense.ia + sense.ib);
 }
 
-inline void current_control_update(current_control_t& control, current_sense_t& sense,
+inline auto current_control_update(current_control_t& control, current_sense_t& sense,
         float electrical_angle, float electrical_velocity, float dt) {
+
     // phase abc to alpha/beta
-    clarke_transform(sense.ia, sense.ib, sense.ic);
+    auto ab = clarke_transform(sense.ia, sense.ib, sense.ic);
     // alpha/beta to d/q
-    park_transform(pt.alpha, pt.beta, electrical_angle);
+    auto dq = park_transform(ab, electrical_angle);
+    // These are still currents at this point
+    control.id = dq.d;
+    control.iq = dq.q;
     // Current errors.
-    const float d_error = control.d_ref - pt.d;
-    const float q_error = control.q_ref - pt.q;
-    // Current PI controllers.
+    const float d_error = control.d_ref - dq.d;
+    const float q_error = control.q_ref - dq.q;
+    // Current PI controllers (output is volts now)
     float vd_pi = pi_update(control.d_pi, d_error, dt);
     float vq_pi = pi_update(control.q_pi, q_error, dt);
-
     // Feedforward: decoupling + back-EMF compensation.
     // These are recomputed fresh each cycle -- no integrator state,
     // so anti-windup scaling below only needs to touch the PI portion.
-    float vd_ff = -electrical_velocity * MOTOR_INDUCTANCE_H * pt.q;
-    float vq_ff =  electrical_velocity * MOTOR_INDUCTANCE_H * pt.d
-                    + electrical_velocity * MOTOR_LAMBDA;
-
+    float vd_ff = -electrical_velocity * MOTOR_INDUCTANCE_H * dq.q;
+    float vq_ff =  electrical_velocity * MOTOR_INDUCTANCE_H * dq.d
+                        + electrical_velocity * MOTOR_LAMBDA;
     float vd = vd_pi + vd_ff;
     float vq = vq_pi + vq_ff;
-
     // Limit voltage vector to linear SVPWM range.
     const float v_limit = SVPWM_MAX_MODULATION * control.vbus;
     const float v_mag = sqrtf(vd * vd + vq * vq);
@@ -271,12 +238,12 @@ inline void current_control_update(current_control_t& control, current_sense_t& 
         const float scale = v_limit / v_mag;
         vd *= scale;
         vq *= scale;
-        // Preserve the existing anti-windup behaviour.
+        //fixme: Preserve the existing anti-windup behaviour.
         control.d_pi.integrator *= scale;
         control.q_pi.integrator *= scale;
     }
-    // Store the actual voltage command.
     control.vd = vd;
     control.vq = vq;
+    return dq_t{vd, vq};
 }
 #endif

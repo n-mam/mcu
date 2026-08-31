@@ -34,7 +34,7 @@ inline void open_loop_update() {
     float angle = g_open_loop.angle;
     float alpha = g_open_loop.modulation * cosf(angle);
     float beta = g_open_loop.modulation * sinf(angle);
-    svpwm_update(g_svpwm, alpha, beta);
+    voltage_to_timer_pwm(g_svpwm.timer, alpha, beta);
     // advance the angle based on commanded electrical frequency
     float angle_step = TWO_PI * g_open_loop.electrical_frequency /
         g_open_loop.update_frequency;
