@@ -1,20 +1,19 @@
 #ifndef SVPWM_H
 #define SVPWM_H
 
-#include <tuple>
-
 constexpr float PI = 3.14159265359f;
 constexpr float PI_OVER_3 = PI / 3.0f;
 constexpr float TWO_PI = 2.0f * PI;
 constexpr float SQRT3  = 1.73205080757f;
-
 // linear svpwm limit: modulation = |Vref| / Vbus
 constexpr float SVPWM_MAX_MODULATION = 0.57735026919f; // 1/sqrt(3)
 
-struct svpwm_t {
-    float angle = 0.0f;
-    float modulation = 0.0f;
-    timer_config_t *timer = nullptr;
+struct pwm_duty_t {
+    float a;
+    float b;
+    float c;
+    float theta;
+    float modulation;
 };
 
 // Apply a stationary-frame voltage vector:
@@ -27,19 +26,17 @@ struct svpwm_t {
 // - calculates sector
 // - calculates T1/T2/T0
 // - calculates Ta/Tb/Tc
-// - returns Ta/Tb/Tc
+// - returns Ta/Tb/Tc/modulation/theta
 inline auto svpwm_update(float alpha, float beta) {
     // Convert alpha/beta vector to magnitude and angle.
     float modulation = sqrtf(alpha * alpha + beta * beta);
     if (modulation > SVPWM_MAX_MODULATION) {
         modulation = SVPWM_MAX_MODULATION;
     }
-    //svpwm.modulation = modulation;
     float theta = atan2f(beta, alpha);
     if (theta < 0.0f) {
         theta += TWO_PI;
     }
-    //svpwm.angle = theta;
     int sector = (int)(theta / PI_OVER_3);
     if (sector >= 6) {
         sector = 5;
@@ -94,16 +91,17 @@ inline auto svpwm_update(float alpha, float beta) {
     Ta = fminf(fmaxf(Ta, 0.0f), 1.0f);
     Tb = fminf(fmaxf(Tb, 0.0f), 1.0f);
     Tc = fminf(fmaxf(Tc, 0.0f), 1.0f);
-    return std::make_tuple(Ta, Tb, Tc);
+    return pwm_duty_t{Ta, Tb, Tc, theta, modulation};
 }
 
 // voltage to pwm
-void voltage_to_timer_pwm(timer_config_t *timer, float alpha, float beta) {
-    auto [Ta, Tb, Tc] = svpwm_update(alpha, beta);
+auto voltage_to_timer_pwm(timer_config_t *timer, float alpha, float beta) {
+    auto duty = svpwm_update(alpha, beta);
     uint32_t arr = timer->arr + 1U;
-    timer->instance->CCR1 = (uint32_t)(Ta * (float)arr);
-    timer->instance->CCR2 = (uint32_t)(Tb * (float)arr);
-    timer->instance->CCR3 = (uint32_t)(Tc * (float)arr);
+    timer->instance->CCR1 = (uint32_t)(duty.a * (float)arr);
+    timer->instance->CCR2 = (uint32_t)(duty.b * (float)arr);
+    timer->instance->CCR3 = (uint32_t)(duty.c * (float)arr);
+    return duty;
 }
 
 inline float ramp_linear(float start, float end,

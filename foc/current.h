@@ -1,16 +1,15 @@
 #ifndef CURRENT_H
 #define CURRENT_H
 
+#include <foc/control.h>
 #include <foc/transforms.h>
 
-constexpr float ADC_VREF   = 3.3f;
-constexpr float CSA_GAIN   = 50.0f;      // V/V, INA240A2
-constexpr float R_SHUNT    = 0.010f;     // 10 mill ohms
-constexpr float ADC_MAXCNT = 4095.0f;
+constexpr float CSA_GAIN   = 50.0f; // V/V, INA240A2
+constexpr float R_SHUNT    = 0.010f; // 10 mill ohms
 
-constexpr float MOTOR_KV = 220.0f;               // RPM per volt, from datasheet
+constexpr float MOTOR_KV = 220.0f; // RPM per volt, from datasheet
 constexpr float MOTOR_RESISTANCE = 2.3f;
-constexpr float MOTOR_INDUCTANCE_H = 0.00086f;   // L, henries, from datasheet
+constexpr float MOTOR_INDUCTANCE_H = 0.00086f; // L, henries, from datasheet
 const float CURRENT_BANDWIDTH = 2000.0f;
 const float WC = 2.0f * PI * CURRENT_BANDWIDTH;
 inline float Kp = MOTOR_INDUCTANCE_H * WC;
@@ -25,15 +24,6 @@ inline float Ki = MOTOR_RESISTANCE * WC;
 constexpr float MOTOR_KE = 1.0f / (MOTOR_KV * (TWO_PI / 60.0f));
 constexpr float MOTOR_LAMBDA = MOTOR_KE / (float)POLE_PAIRS * 0.55;
 
-// PI controller
-struct pi_controller_t {
-    float kp = 0.0f;
-    float ki = 0.0f;
-    float integrator = 0.0f;
-    float out_min = -1.0f;
-    float out_max =  1.0f;
-};
-
 struct current_control_t {
     pi_controller_t d_pi;
     pi_controller_t q_pi;
@@ -43,207 +33,82 @@ struct current_control_t {
     float iq = 0.0f;
     float vd = 0.0f;
     float vq = 0.0f;
-    float vbus = 9.49f;
-    float inv_vbus = 1 / vbus;
+    float modulation = 0.0f;
     float current_limit = 0.8f;
-};
-
-struct current_sense_t {
+    // current sense
     // Measured; in amps
     float ia = 0.0f;
     float ib = 0.0f;
-    // Derived; from ia, ib
+    // Derived from ia, ib using
+    // balanced 3-phase system
     float ic = 0.0f;
     // Raw ADC values
     uint16_t raw_a = 0;
     uint16_t raw_b = 0;
-    // CSA zero current bias, clibrated
-    float bias_a = 0.0f;
-    float bias_b = 0.0f;
-    uint64_t calibration_sum_a = 0;
-    uint64_t calibration_sum_b = 0;
-    uint32_t calibration_samples = 0;
-    bool calibrating = false;
+
+    inline float adc_to_phase_amps(uint16_t raw, float v_bias) {
+        float v_adc = ((float)raw / ADC_MAXCNT) * ADC_VREF;
+        return (v_adc - v_bias) / (CSA_GAIN * R_SHUNT);
+    }
+
+    inline void adc_to_phase_currents(uint16_t raw_a, uint16_t raw_b,
+            float bias_a, float bias_b) {
+        raw_a = raw_a;
+        raw_b = raw_b;
+        ia = adc_to_phase_amps(raw_a, bias_a);
+        ib = adc_to_phase_amps(raw_b, bias_b);
+        ic = -(ia + ib);
+    }
+
+    inline void reset() {
+        d_pi.reset();
+        q_pi.reset();
+    }
+
+    inline auto current_control(float electrical_angle, float electrical_velocity, float dt) {
+
+        // phase abc to alpha/beta
+        auto ab = clarke_transform(ia, ib, ic);
+
+        // alpha/beta to d/q
+        auto dq = park_transform(ab, electrical_angle);
+
+        // These are still currents at this point
+        id = dq.d;
+        iq = dq.q;
+
+        // Current errors.
+        const float d_error = d_ref - dq.d;
+        const float q_error = q_ref - dq.q;
+
+        // Current PI controllers (output is volts now)
+        float vd_pi = d_pi.update(d_error, dt);
+        float vq_pi = q_pi.update(q_error, dt);
+
+        // Feedforward: decoupling + back-EMF compensation.
+        // These are recomputed fresh each cycle -- no integrator state,
+        // so anti-windup scaling below only needs to touch the PI portion.
+        float vd_ff = -electrical_velocity * MOTOR_INDUCTANCE_H * dq.q;
+        float vq_ff =  electrical_velocity * MOTOR_INDUCTANCE_H * dq.d
+                            + electrical_velocity * MOTOR_LAMBDA;
+        vd = vd_pi + vd_ff;
+        vq = vq_pi + vq_ff;
+
+        // Limit voltage vector to linear SVPWM range.
+        const float v_limit = SVPWM_MAX_MODULATION * VBUS;
+        const float v_mag = sqrtf(vd * vd + vq * vq);
+        if (v_mag > v_limit) {
+            const float scale = v_limit / v_mag;
+            vd *= scale;
+            vq *= scale;
+        }
+
+        return dq_t{vd, vq};
+    }
+
 };
 
-inline current_sense_t cs;
+
 inline current_control_t cc;
 
-inline void current_bias_calibration_start() {
-    cs.calibration_samples = 0;
-    cs.calibration_sum_a = 0;
-    cs.calibration_sum_b = 0;
-    cs.calibrating = true;
-}
-
-inline bool current_bias_calibration_complete(uint32_t target_samples) {
-    return cs.calibration_samples >= target_samples;
-}
-
-inline void current_bias_calibration_finish() {
-    const uint32_t n = cs.calibration_samples;
-    if (n == 0) {
-        cs.calibrating = false;
-        return;
-    }
-    const float avg_a = (float)cs.calibration_sum_a / (float)n;
-    const float avg_b = (float)cs.calibration_sum_b / (float)n;
-    cs.bias_a = (avg_a / ADC_MAXCNT) * ADC_VREF;
-    cs.bias_b = (avg_b / ADC_MAXCNT) * ADC_VREF;
-    LOG << " current bias A: " << cs.bias_a << "v";
-    LOG << " current bias B: " << cs.bias_b << "v";
-    cs.calibrating = false;
-}
-
-inline void init_current_sampling() {
-    // Enable GPIOA clock and
-    // configure PA0 and PA1 to analog
-    adc_gpio_init(GPIOA, {0, 1});
-    // Enable clock for ADC peripheral
-    // to access ADC common registers
-    mcl::enableClockForAdc(ADC1);
-    adc_global_init();
-    // TIM1 CH4
-    // Internal-only PWM/compare channel.
-    // No GPIO is assigned to CH4.
-    // Center-aligned TIM1:
-    // With PWM mode 1 and rising-edge ADC trigger, the CH4 rising
-    // edge occurs on the down-count when CNT crosses CCR4.
-    // ARR-1 gives us a trigger essentially at the center of the
-    // PWM period, while avoiding the CCR4 == ARR trigger issue.
-    TIM1->CCMR2 &= ~(TIM_CCMR2_CC4S | TIM_CCMR2_OC4M);
-    // PWM mode 1
-    TIM1->CCMR2 |= (6UL << TIM_CCMR2_OC4M_Pos);
-    // CCR4 preload
-    TIM1->CCMR2 |= TIM_CCMR2_OC4PE;
-    // Trigger essentially at the center of the
-    // center-aligned PWM cycle.
-    TIM1->CCR4 = TIM1->ARR - 1U;
-    // Enable CH4 internally.
-    // No GPIO configuration is necessary.
-    TIM1->CCER |= TIM_CCER_CC4E;
-    // ADC1
-    // PA0 -> ADC1_IN0 -> JDR1
-    // PA1 -> ADC1_IN1 -> JDR2
-    // Two injected conversions per TIM1 CH4 trigger.
-    constexpr uint32_t PHASE_A = ADC_CH0;
-    constexpr uint32_t PHASE_B = ADC_CH1;
-    constexpr uint32_t SAMPLE_TIME = ADC_SAMPLE_84;
-    // ADC sample time
-    ADC1->SMPR2 &= ~(
-        (7UL << (PHASE_A * 3U)) |
-        (7UL << (PHASE_B * 3U))
-    );
-    ADC1->SMPR2 |=
-        (SAMPLE_TIME << (PHASE_A * 3U)) |
-        (SAMPLE_TIME << (PHASE_B * 3U));
-    // 12-bit, right aligned
-    ADC1->CR1 &= ~(3UL << 24);
-    ADC1->CR2 &= ~ADC_CR2_ALIGN;
-    ADC1->CR1 |= ADC_CR1_SCAN;
-    // Injected sequence
-    // JSQ1 = phase A
-    // JSQ2 = phase B
-    // JL = 1 => sequence contains 2 conversions.
-    ADC1->JSQR = 0;
-    ADC1->JSQR |= (PHASE_A << ADC_JSQR_JSQ3_Pos);
-    ADC1->JSQR |= (PHASE_B << ADC_JSQR_JSQ4_Pos);
-    ADC1->JSQR |= ADC_JSQR_JL_0;
-    // TIM1_CH4 -> injected trigger
-    // STM32F446:
-    // JEXTSEL = 0000 -> TIM1_CH4
-    // JEXTEN  = 01   -> rising edge
-    ADC1->CR2 &= ~(ADC_CR2_JEXTSEL | ADC_CR2_JEXTEN);
-    // JEXTSEL = 0000 => TIM1_CH4
-    // Rising-edge trigger
-    ADC1->CR2 |= ADC_CR2_JEXTEN_0;
-    // Interrupt after the injected sequence completes.
-    // This occurs after JDR1 and JDR2 have both been filled.
-    ADC1->CR1 |= ADC_CR1_JEOCIE;
-    // Clear stale status.
-    ADC1->SR = 0;
-    // Enable ADC1.
-    // Do NOT use SWSTART/JSWSTART.
-    // TIM1 CH4 starts every injected sequence.
-    ADC1->CR2 |= ADC_CR2_ADON;
-    // ADC interrupt.
-    NVIC_EnableIRQ(ADC_IRQn);
-}
-
-inline float adc_to_phase_amps(uint16_t raw, float v_bias) {
-    float v_adc = ((float)raw / ADC_MAXCNT) * ADC_VREF;
-    return (v_adc - v_bias) / (CSA_GAIN * R_SHUNT);
-}
-
-inline float pi_update(pi_controller_t &pi, float error, float dt) {
-    pi.integrator += pi.ki * error * dt;
-    if (pi.integrator > pi.out_max) pi.integrator = pi.out_max;
-    if (pi.integrator < pi.out_min) pi.integrator = pi.out_min;
-    float out = pi.kp * error + pi.integrator;
-    if (out > pi.out_max) out = pi.out_max;
-    if (out < pi.out_min) out = pi.out_min;
-    return out;
-}
-
-inline void pi_reset(pi_controller_t &pi) {
-    pi.integrator = 0.0f;
-}
-
-inline void current_loop_reset(current_control_t &cc) {
-    pi_reset(cc.d_pi);
-    pi_reset(cc.q_pi);
-}
-
-// current_sense_update()
-//     ADC counts to amps
-// current_control_update()
-//     amps to dq to PI to voltage
-inline void current_sense_update(
-        current_sense_t& sense, uint16_t raw_a, uint16_t raw_b) {
-    sense.raw_a = raw_a;
-    sense.raw_b = raw_b;
-    sense.ia = adc_to_phase_amps(raw_a, sense.bias_a);
-    sense.ib = adc_to_phase_amps(raw_b, sense.bias_b);
-    sense.ic = -(sense.ia + sense.ib);
-}
-
-inline auto current_control_update(current_control_t& control, current_sense_t& sense,
-        float electrical_angle, float electrical_velocity, float dt) {
-
-    // phase abc to alpha/beta
-    auto ab = clarke_transform(sense.ia, sense.ib, sense.ic);
-    // alpha/beta to d/q
-    auto dq = park_transform(ab, electrical_angle);
-    // These are still currents at this point
-    control.id = dq.d;
-    control.iq = dq.q;
-    // Current errors.
-    const float d_error = control.d_ref - dq.d;
-    const float q_error = control.q_ref - dq.q;
-    // Current PI controllers (output is volts now)
-    float vd_pi = pi_update(control.d_pi, d_error, dt);
-    float vq_pi = pi_update(control.q_pi, q_error, dt);
-    // Feedforward: decoupling + back-EMF compensation.
-    // These are recomputed fresh each cycle -- no integrator state,
-    // so anti-windup scaling below only needs to touch the PI portion.
-    float vd_ff = -electrical_velocity * MOTOR_INDUCTANCE_H * dq.q;
-    float vq_ff =  electrical_velocity * MOTOR_INDUCTANCE_H * dq.d
-                        + electrical_velocity * MOTOR_LAMBDA;
-    float vd = vd_pi + vd_ff;
-    float vq = vq_pi + vq_ff;
-    // Limit voltage vector to linear SVPWM range.
-    const float v_limit = SVPWM_MAX_MODULATION * control.vbus;
-    const float v_mag = sqrtf(vd * vd + vq * vq);
-    if (v_mag > v_limit) {
-        const float scale = v_limit / v_mag;
-        vd *= scale;
-        vq *= scale;
-        //fixme: Preserve the existing anti-windup behaviour.
-        control.d_pi.integrator *= scale;
-        control.q_pi.integrator *= scale;
-    }
-    control.vd = vd;
-    control.vq = vq;
-    return dq_t{vd, vq};
-}
 #endif

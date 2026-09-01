@@ -1,158 +1,101 @@
 #ifndef FOC_H
 #define FOC_H
 
+#include <foc/hardware.h>
 #include <foc/svpwm.h>
 #include <foc/encoder.h>
 #include <foc/current.h>
 #include <foc/speed.h>
 
-inline svpwm_t svpwm;
 enum foc_state { stopped, running, fault };
 foc_state state{ stopped };
 
 inline void adc_injected_callback(uint16_t raw_a, uint16_t raw_b) {
+
     // Disable FOC during encoder/zero current calibration
     if (state != foc_state::running) {
-        // zero-current calibration
-        if (cs.calibrating) {
-            cs.calibration_sum_a += raw_a;
-            cs.calibration_sum_b += raw_b;
-            ++cs.calibration_samples;
-        }
+        update_current_calibration_sample(raw_a, raw_b);
         return;
     }
+
     // ADC counts to phase currents
-    current_sense_update(cs, raw_a, raw_b);
+    cc.adc_to_phase_currents(raw_a, raw_b,
+        calibration.bias_a, calibration.bias_b);
+
+    // Snapshot read encoder
+    const encoder_state_t *encoder = encoder_read;
+
     // Predicted angle
-    const encoder_state_t* encoder = encoder_read;
     const auto electrical_angle =
             encoder_predict_electrical_angle(*encoder);
+
     // Speed control
     static uint16_t speed_loop_divider = 0;
     if (++speed_loop_divider >= 10) {
         speed_loop_divider = 0;
         constexpr float SPEED_LOOP_DT = 0.0005f;
-        speed_control_update(
-            sc, encoder->mechanical_velocity, SPEED_LOOP_DT);
+        sc.speed_control(encoder->mechanical_velocity, SPEED_LOOP_DT);
     }
+
     // Current control
     constexpr float CURRENT_LOOP_DT = 1.0f / 20'000.0f;
-    auto dq = current_control_update(cc, cs, electrical_angle,
+    auto dq = cc.current_control(electrical_angle,
             encoder->electrical_velocity, CURRENT_LOOP_DT);
 
     auto ab = inverse_park_transform(dq, electrical_angle);
+
     // PI outputs are in volts; svpwm
     // expects Vref normalized to Vbus.
-    ab.alpha *= cc.inv_vbus;
-    ab.beta  *= cc.inv_vbus;
-    voltage_to_timer_pwm(svpwm.timer, ab.alpha, ab.beta);
+    auto out = voltage_to_timer_pwm(&(hw.pwm_timer),
+        ab.alpha * INV_VBUS, ab.beta * INV_VBUS);
+    cc.modulation = out.modulation;
 }
 
-serial::i2c *i2cbus = nullptr;
 void tim2_encoder_callback(timer_event_t event) {
     if (event == TIMER_EVENT_UPDATE) {
         // executes at 1kHz
-        encoder_read_and_update_angles(*i2cbus);
+        encoder_read_and_update_angles();
     }
 }
 
 inline void test_foc() {
 
-    timer_config_t tm{};
-    tm.instance = TIM1;
-    tm.interrupt_callback = nullptr;
-    tm.mode = cms::ca1;
-    timer_init(&tm);
-    timer_set_frequency(&tm, 20'000);
-    static const uint8_t hs[] = {8, 9, 10};
-    static const uint8_t ls[] = {13, 14, 15};
-    timer_init_gpio(GPIOA, hs, 3, 1);
-    timer_init_gpio(GPIOB, ls, 3, 1);
-    // TMC6300 has hardware dead time insertion (BBM)
-    //timer_set_dead_time(&tm, 250);
-    timer_init_channel(&tm, 1, GPIOA, 8, GPIOB, 13);
-    timer_init_channel(&tm, 2, GPIOA, 9, GPIOB, 14);
-    timer_init_channel(&tm, 3, GPIOA, 10, GPIOB, 15);
-    // start timer channels
-    timer_start_channel(&tm, 1, true);
-    timer_start_channel(&tm, 2, true);
-    timer_start_channel(&tm, 3, true);
+    // TIM1 CH1/2/3 SVPWM setup
+    initialize_phase_pwm_timer();
+    // CSA ADC setup
+    initialize_adc_hardware(adc_injected_callback);
 
-    // CH4 trigger + ADC1 injected sequence
-    init_current_sampling();
-    ADC_Config_t cfg{};
-    cfg._instance = ADC1;
-    cfg._interrupt_callback_regular = nullptr;
-    cfg._interrupt_callback_injected = adc_injected_callback;
-    adc_set_config(&cfg);
-
-    svpwm.timer = &tm;
+    // Disbale till we calibrate CSA and the encoder
     state = foc_state::stopped;
-
     // Zero current ADC bias calibration
-    constexpr uint32_t CURRENT_BIAS_SAMPLES = 1000;
-    // No average motor voltage.
-    // Keep all three PWM phases at 50% duty while the ADC
-    // continues to be triggered by TIM1 CH4.
-    const uint32_t zero_duty = (tm.arr + 1U) / 2U;
-    tm.instance->CCR1 = zero_duty;
-    tm.instance->CCR2 = zero_duty;
-    tm.instance->CCR3 = zero_duty;
-    current_bias_calibration_start();
-    // Start TIM1 once. This also starts
-    // the synchronized ADC injected sampling.
-    timer_start(&tm);
-    while (!current_bias_calibration_complete(CURRENT_BIAS_SAMPLES)) { __WFI(); }
-    current_bias_calibration_finish();
-
-    // Encoder electrical-zero calibration
-    serial::i2c bus(3, 10, 400'000, I2C2, GPIOB);
-    svpwm_t calibration_svm{};
-    calibration_svm.timer = &tm;
-    auto rc = calibrate_encoder(bus, calibration_svm, cc.vbus);
-    if (!rc) return;
-
-    // TIM2 encoder read setup
-    i2cbus = &bus;
-    timer_config_t tim2_cfg = {};
-    tim2_cfg.instance = TIM2;
-    tim2_cfg.mode = cms::ea;
-    tim2_cfg.interrupt_callback = tim2_encoder_callback;
-    // Configure TIM2 and make its counter clock 1 MHz
-    timer_init(&tim2_cfg);
-    // Configure update frequency = 1kHz
-    timer_set_frequency(&tim2_cfg, 1000);
-    // Register/enable TIM2 update interrupt
-    timer_enable_interrupt(&tim2_cfg);
-    // Start TIM2
-    timer_start(&tim2_cfg);
-
+    calibrate_current_sensor();
+    // Calibrate encoder's sign and zero offset
+    calibrate_encoder_sign_and_offset();
+    // Encoder TIM2 read setup
+    initialize_encoder_timer(tim2_encoder_callback);
     // With vbus = 9.49 V:
     // v_limit = 9.49 / sqrt(3) ≈ 5.48 V
     // so each PI can request up to ±5.48 V.
-    const float v_limit = SVPWM_MAX_MODULATION * cc.vbus;
+    const float v_limit = SVPWM_MAX_MODULATION * VBUS;
     cc.d_pi = { .kp = Kp, .ki = Ki, .integrator = 0.0f, .out_min = -v_limit, .out_max = v_limit };
     cc.q_pi = { .kp = Kp, .ki = Ki, .integrator = 0.0f, .out_min = -v_limit, .out_max = v_limit };
     sc.pi   = { .kp = 0.03f, .ki = 1.4f, .integrator = 0.0f, .out_min = -0.30f, .out_max = 0.30f };
-
     // manual hold delay
     mcl::delay_ms(2000);
-    current_loop_reset(cc);
-    speed_loop_reset(sc);
-
+    cc.reset();
+    sc.reset();
     state = foc_state::running;
 
     uint64_t total_cycles = 0;
     uint32_t last_cycles = DWT->CYCCNT;
-
     uint64_t last_log_cycles = 0;
     uint64_t log_period_cycles = (uint64_t)SystemCoreClock / 2U;
 
     // cc.d_ref = 0.0f;
     // cc.q_ref = 0.3f;
-    constexpr float SPEED_START = 10.0f;
-    float SPEED_END = 0.5f; // 0.25f; OK
-    constexpr float SPEED_RAMP_DURATION_S = 15.0f;
+    constexpr float SPEED_START = 15.0f;
+    float SPEED_END = 1.0f; //0.5f; // 0.25f; OK
+    constexpr float SPEED_RAMP_DURATION_S = 30.0f;
     sc.speed_ref = SPEED_START;
     float inv_SystemCoreClock = 1 / (float)SystemCoreClock;
     uint32_t last_ramp_ms = mcl::time_ms();
@@ -179,7 +122,7 @@ inline void test_foc() {
         }
     }
 
-    timer_stop(&tm);
+    timer_stop(&(hw.pwm_timer));
 }
 
 inline void log_foc_state(float elapsed_s) {
@@ -189,9 +132,8 @@ inline void log_foc_state(float elapsed_s) {
         "theta:%f elapsed:%f s_ref:%f s_mes:%f "
         "[ia:%f ib:%f ic:%f] q_ref:%fA [id:%f iq:%f] [vd:%f vq:%f] mod:%f vd_i:%f vq_i:%f s_i:%f",
             encoder->electrical_angle, elapsed_s, sc.speed_ref, sc.speed_measured,
-                cs.ia, cs.ib, cs.ic, cc.q_ref, cc.id, cc.iq, cc.vd, cc.vq,
-                    svpwm.modulation, cc.d_pi.integrator, cc.q_pi.integrator,
-                        sc.pi.integrator);
+                cc.ia, cc.ib, cc.ic, cc.q_ref, cc.id, cc.iq, cc.vd, cc.vq,
+                    cc.modulation, cc.d_pi.integrator, cc.q_pi.integrator, sc.pi.integrator);
     if (len > 0) {
         if (len >= sizeof(log_buffer)) len = sizeof(log_buffer) - 1;
         LOG << std::string(log_buffer, len);

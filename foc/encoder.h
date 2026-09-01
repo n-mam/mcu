@@ -133,8 +133,8 @@ inline void fd_velocity_update(int32_t delta_counts, float dt_s) {
 }
 
 // Extrapolate encoder state forward from the last I2C sample using
-// the last measured velocity/acceleration. Called from the ADC ISR,
-// which runs far more often than the encoder is actually read.
+// the last measured velocity. Called from the ADC ISR, which runs
+// far more often than the encoder is actually read.
 inline float encoder_predict_electrical_angle(const encoder_state_t& encoder_state) {
 
     const float encoder_age =
@@ -154,13 +154,13 @@ inline float encoder_predict_electrical_angle(const encoder_state_t& encoder_sta
     return electrical_angle;
 }
 
-inline void encoder_read_and_update_angles(serial::i2c& bus) {
+inline void encoder_read_and_update_angles() {
 
     // Start from the last published snapshot so the write buffer
     // contains a complete, coherent state before modifying it.
     *encoder_write = *encoder_read;
 
-    encoder_write->raw = as5600_read_raw_angle(bus);
+    encoder_write->raw = as5600_read_raw_angle(*(hw.encoder_i2c));
 
     encoder_write->mechanical_angle =
         encoder_to_mechanical_angle(
@@ -206,7 +206,11 @@ inline void encoder_read_and_update_angles(serial::i2c& bus) {
     encoder_write = tmp;
 }
 
-inline bool calibrate_encoder(serial::i2c& bus, svpwm_t& svm, float vbus) {
+inline bool calibrate_encoder_sign_and_offset() {
+    // Encoder sign and electrical-zero calibration
+    hw.encoder_i2c = new serial::i2c(3, 10, 400'000, I2C2, GPIOB);
+    auto& bus = *(hw.encoder_i2c);
+    auto timer = &(hw.pwm_timer);
     constexpr float CALIBRATION_VOLTAGE = 1.5f;
     // Keep the modulation relatively small. It should be large enough to
     // overcome cogging/friction, but not so large that the rotor
@@ -214,7 +218,7 @@ inline bool calibrate_encoder(serial::i2c& bus, svpwm_t& svm, float vbus) {
     // Force the rotor to electrical angle 0.
     // Valpha = +V
     // Vbeta  =  0
-    voltage_to_timer_pwm(svm.timer, CALIBRATION_VOLTAGE / vbus, 0.0f);
+    voltage_to_timer_pwm(timer, CALIBRATION_VOLTAGE / VBUS, 0.0f);
     mcl::sleep_ms(1000);
     encoder_write->zero_raw = average_encoder_raw(bus);
     LOG << " zero raw = " << encoder_write->zero_raw;
@@ -224,7 +228,7 @@ inline bool calibrate_encoder(serial::i2c& bus, svpwm_t& svm, float vbus) {
     // If positive electrical rotation makes the encoder count
     // increase, sign = +1.
     // If it makes the encoder count decrease, sign = -1.
-    voltage_to_timer_pwm(svm.timer, 0.0f, CALIBRATION_VOLTAGE / vbus);
+    voltage_to_timer_pwm(timer, 0.0f, CALIBRATION_VOLTAGE / VBUS);
     mcl::sleep_ms(1000);
     const uint16_t plus_90_raw = average_encoder_raw(bus);
     const int32_t delta = encoder_signed_wrap_delta(encoder_write->zero_raw, plus_90_raw);
@@ -245,7 +249,7 @@ inline bool calibrate_encoder(serial::i2c& bus, svpwm_t& svm, float vbus) {
     LOG << " delta = " << delta;
     LOG << " sign = " << (int)encoder_write->sign;
     // Return to electrical zero so the rotor is left in a known state.
-    voltage_to_timer_pwm(svm.timer, CALIBRATION_VOLTAGE / vbus, 0.0f);
+    voltage_to_timer_pwm(timer, CALIBRATION_VOLTAGE / VBUS, 0.0f);
     mcl::sleep_ms(1000);
     // Re-sample zero after returning.
     // This catches cases where the rotor did not settle exactly

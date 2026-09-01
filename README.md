@@ -19,12 +19,13 @@
 - MPU6050 + HMC5883L test streams data over uart which can then be used for testing mahony absolute orientation filter (vtk visualizaion in offset repo)
 - Dont use the app folder; that has very old code; any desktop based telemetry/visualization would be in the offset repo
 
-### FOC - torque control
+### FOC - torque and speed control
 ```
 setup
 - inline current sensing using 2, INA240A 50v/v gain CSA's
 - TMC6300 combined HS/LS gate driver + power stage
 - DfRobot 2804 3-Phase Brushless DC Motor 12V 2600RPM 300g/cm
+- LM2596S buck converter. 12V supply, pot set to 9.5V
 - STM32F446RE
 ```
 

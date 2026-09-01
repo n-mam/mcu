@@ -1,6 +1,7 @@
 #ifndef VF_DRIVE_H
 #define VF_DRIVE_H
 
+#include <foc/hardware.h>
 #include <foc/svpwm.h>
 #include <foc/encoder.h>
 
@@ -26,7 +27,6 @@ struct open_loop_t {
     float ramp_duration_s = 30.0f;
 };
 
-inline svpwm_t g_svpwm;
 inline open_loop_t g_open_loop;
 inline volatile bool encoder_hold = true;
 
@@ -34,7 +34,7 @@ inline void open_loop_update() {
     float angle = g_open_loop.angle;
     float alpha = g_open_loop.modulation * cosf(angle);
     float beta = g_open_loop.modulation * sinf(angle);
-    voltage_to_timer_pwm(g_svpwm.timer, alpha, beta);
+    voltage_to_timer_pwm(&(hw.pwm_timer), alpha, beta);
     // advance the angle based on commanded electrical frequency
     float angle_step = TWO_PI * g_open_loop.electrical_frequency /
         g_open_loop.update_frequency;
@@ -50,71 +50,36 @@ inline void tim1_callback_open(timer_event_t event) {
     }
 }
 
-serial::i2c *i2c_bus = nullptr;
 void tim2_encoder_vfd_callback(timer_event_t event) {
     if (event == TIMER_EVENT_UPDATE) {
         // executes at 1kHz
-        encoder_read_and_update_angles(*i2c_bus);
+        encoder_read_and_update_angles();
     }
 }
 
 inline void test_vf_drive() {
-    timer_config_t tm{};
-    tm.instance = TIM1;
-    tm.interrupt_callback = tim1_callback_open;
-    tm.mode = cms::ca1;
-    timer_init(&tm);
-    timer_set_frequency(&tm, 20000);
-    static const uint8_t hs[] = {8, 9, 10};
-    static const uint8_t ls[] = {13, 14, 15};
-    timer_init_gpio(GPIOA, hs, 3, 1);
-    timer_init_gpio(GPIOB, ls, 3, 1);
-    //timer_set_dead_time(&tm, 250);
-    timer_init_channel(&tm, 1, GPIOA, 8, GPIOB, 13);
-    timer_init_channel(&tm, 2, GPIOA, 9, GPIOB, 14);
-    timer_init_channel(&tm, 3, GPIOA, 10, GPIOB, 15);
-    // start timer channels
-    timer_start_channel(&tm, 1, true);
-    timer_start_channel(&tm, 2, true);
-    timer_start_channel(&tm, 3, true);
+    // TIM1 CH1/2/3 SVPWM setup
+    initialize_phase_pwm_timer();
 
-    g_svpwm.timer = &tm;
     g_open_loop.angle = 0.0f;
     g_open_loop.modulation = g_open_loop.modulation_start;
     g_open_loop.electrical_frequency = g_open_loop.frequency_start;
 
-    timer_enable_interrupt(&tm);
+    timer_enable_interrupt(&(hw.pwm_timer));
     encoder_hold = true;
-    timer_start(&tm);
+    timer_start(&(hw.pwm_timer));
 
     // Encoder bus
-    serial::i2c bus(3, 10, 400'000, I2C2, GPIOB);
-    svpwm_t calibration_svm{};
-    calibration_svm.timer = &tm;
-    auto rc = calibrate_encoder(bus, calibration_svm, 9.49f);
-    if (!rc) return;
+    calibrate_encoder_sign_and_offset();
     // Read the encoder at the final calibrated rotor position.
-    encoder_read_and_update_angles(bus);
+    encoder_read_and_update_angles();
     // Start the open-loop electrical field from the
     // same electrical angle as the encoder.
     g_open_loop.angle = encoder_read->electrical_angle;
     // Discard any velocity-estimator state accumulated during calibration.
     reset_velocity_estimator();
-
-    // TIM2 encoder read setup
-    i2c_bus = &bus;
-    timer_config_t tim2_cfg = {};
-    tim2_cfg.instance = TIM2;
-    tim2_cfg.mode = cms::ea;
-    tim2_cfg.interrupt_callback = tim2_encoder_vfd_callback;
-    // Configure TIM2 and make its counter clock 1 MHz
-    timer_init(&tim2_cfg);
-    // Configure update frequency = 1kHz
-    timer_set_frequency(&tim2_cfg, 1000);
-    // Register/enable TIM2 update interrupt
-    timer_enable_interrupt(&tim2_cfg);
-    // Start TIM2
-    timer_start(&tim2_cfg);
+    // Encoder TIM2 read setup
+    initialize_encoder_timer(tim2_encoder_vfd_callback);
 
     const uint32_t ramp_start_ms = mcl::time_ms();
     uint32_t last_ramp_update_ms = ramp_start_ms;
@@ -162,7 +127,7 @@ inline void test_vf_drive() {
             last_log_ms = now_ms;
         }
     }
-    timer_stop(&tm);
+    timer_stop(&(hw.pwm_timer));
 }
 
 #endif
