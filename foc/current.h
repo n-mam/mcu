@@ -53,8 +53,8 @@ struct current_control_t {
 
     inline void adc_to_phase_currents(uint16_t raw_a, uint16_t raw_b,
             float bias_a, float bias_b) {
-        raw_a = raw_a;
-        raw_b = raw_b;
+        this->raw_a = raw_a;
+        this->raw_b = raw_b;
         ia = adc_to_phase_amps(raw_a, bias_a);
         ib = adc_to_phase_amps(raw_b, bias_b);
         ic = -(ia + ib);
@@ -107,7 +107,6 @@ struct current_control_t {
     }
 
 };
-
 
 inline current_control_t cc;
 

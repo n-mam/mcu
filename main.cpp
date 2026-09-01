@@ -29,7 +29,6 @@ static constexpr
             {22,  adc_tim_dma_test},
             {23,  test_vf_drive},
             {24,  test_foc},
-            {25,  test_as5600},
             #if defined(PICO)
             {99, []() {
                 watchdog_enable(3000, true);
@@ -50,7 +49,7 @@ int main(void) {
         if (it != std::end(dispatch_table)) {
             it->second();
         } else {
-            LOG << "Unknown action: " << action;
+            LOG << "unknown action: " << action;
         }
         mcl::sleep_ms(500);
     }

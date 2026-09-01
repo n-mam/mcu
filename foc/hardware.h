@@ -25,13 +25,13 @@ struct csa_calibration_t {
 inline hardware_t hw{};
 inline csa_calibration_t calibration;
 
-typedef void (*pfn_tim_encoder_callback_t)(timer_event_t);
+typedef void (*pfn_tim_callback_t)(timer_event_t);
 typedef void (*pfn_adc_injected_callback_t)(uint16_t, uint16_t);
 
-inline void initialize_phase_pwm_timer() {
+inline void initialize_phase_pwm_timer(pfn_tim_callback_t callback) {
     auto& tm = hw.pwm_timer;
     tm.instance = TIM1;
-    tm.interrupt_callback = nullptr;
+    tm.interrupt_callback = callback;
     tm.mode = cms::ca1;
     timer_init(&tm);
     timer_set_frequency(&tm, 20'000);
@@ -173,7 +173,7 @@ inline void update_current_calibration_sample(uint16_t raw_a, uint16_t raw_b) {
     }
 }
 
-inline void initialize_encoder_timer(pfn_tim_encoder_callback_t callback) {
+inline void initialize_encoder_timer(pfn_tim_callback_t callback) {
     // Configure encoder reads via TIM2
     timer_config_t& tim2 = hw.encoder_timer;
     tim2.instance = TIM2;

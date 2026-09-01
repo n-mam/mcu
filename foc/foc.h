@@ -11,39 +11,31 @@ enum foc_state { stopped, running, fault };
 foc_state state{ stopped };
 
 inline void adc_injected_callback(uint16_t raw_a, uint16_t raw_b) {
-
     // Disable FOC during encoder/zero current calibration
     if (state != foc_state::running) {
         update_current_calibration_sample(raw_a, raw_b);
         return;
     }
-
     // ADC counts to phase currents
     cc.adc_to_phase_currents(raw_a, raw_b,
         calibration.bias_a, calibration.bias_b);
-
     // Snapshot read encoder
-    const encoder_state_t *encoder = encoder_read;
-
+    const auto& enc = encoder.read();
     // Predicted angle
-    const auto electrical_angle =
-            encoder_predict_electrical_angle(*encoder);
-
+    const auto electrical_angle = encoder.predict_electrical_angle();
     // Speed control
     static uint16_t speed_loop_divider = 0;
     if (++speed_loop_divider >= 10) {
         speed_loop_divider = 0;
         constexpr float SPEED_LOOP_DT = 0.0005f;
-        sc.speed_control(encoder->mechanical_velocity, SPEED_LOOP_DT);
+        sc.speed_control(enc.mechanical_velocity, SPEED_LOOP_DT);
     }
-
     // Current control
     constexpr float CURRENT_LOOP_DT = 1.0f / 20'000.0f;
     auto dq = cc.current_control(electrical_angle,
-            encoder->electrical_velocity, CURRENT_LOOP_DT);
+            enc.electrical_velocity, CURRENT_LOOP_DT);
 
     auto ab = inverse_park_transform(dq, electrical_angle);
-
     // PI outputs are in volts; svpwm
     // expects Vref normalized to Vbus.
     auto out = voltage_to_timer_pwm(&(hw.pwm_timer),
@@ -54,14 +46,14 @@ inline void adc_injected_callback(uint16_t raw_a, uint16_t raw_b) {
 void tim2_encoder_callback(timer_event_t event) {
     if (event == TIMER_EVENT_UPDATE) {
         // executes at 1kHz
-        encoder_read_and_update_angles();
+        encoder.update();
     }
 }
 
 inline void test_foc() {
 
     // TIM1 CH1/2/3 SVPWM setup
-    initialize_phase_pwm_timer();
+    initialize_phase_pwm_timer(nullptr);
     // CSA ADC setup
     initialize_adc_hardware(adc_injected_callback);
 
@@ -70,7 +62,7 @@ inline void test_foc() {
     // Zero current ADC bias calibration
     calibrate_current_sensor();
     // Calibrate encoder's sign and zero offset
-    calibrate_encoder_sign_and_offset();
+    encoder.calibrate_sign_and_offset();
     // Encoder TIM2 read setup
     initialize_encoder_timer(tim2_encoder_callback);
     // With vbus = 9.49 V:
@@ -126,12 +118,13 @@ inline void test_foc() {
 }
 
 inline void log_foc_state(float elapsed_s) {
-    const encoder_state_t* encoder = encoder_read;
+    // Snapshot read encoder
+    const auto& enc = encoder.read();
     char log_buffer[512];
     int len = snprintf(log_buffer, sizeof(log_buffer),
         "theta:%f elapsed:%f s_ref:%f s_mes:%f "
         "[ia:%f ib:%f ic:%f] q_ref:%fA [id:%f iq:%f] [vd:%f vq:%f] mod:%f vd_i:%f vq_i:%f s_i:%f",
-            encoder->electrical_angle, elapsed_s, sc.speed_ref, sc.speed_measured,
+            enc.electrical_angle, elapsed_s, sc.speed_ref, sc.speed_measured,
                 cc.ia, cc.ib, cc.ic, cc.q_ref, cc.id, cc.iq, cc.vd, cc.vq,
                     cc.modulation, cc.d_pi.integrator, cc.q_pi.integrator, sc.pi.integrator);
     if (len > 0) {
@@ -139,5 +132,17 @@ inline void log_foc_state(float elapsed_s) {
         LOG << std::string(log_buffer, len);
     }
 }
+
+struct foc_controller_t {
+    encoder_t encoder;
+    speed_control_t speed;
+    current_control_t current;
+    //position_control_t position;
+    foc_state state = foc_state::stopped;
+    void adc_callback(uint16_t raw_a, uint16_t raw_b);
+    void encoder_callback(timer_event_t event);
+    void start();
+    void stop();
+};
 
 #endif

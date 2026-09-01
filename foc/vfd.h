@@ -50,16 +50,16 @@ inline void tim1_callback_open(timer_event_t event) {
     }
 }
 
-void tim2_encoder_vfd_callback(timer_event_t event) {
+inline void tim2_encoder_vfd_callback(timer_event_t event) {
     if (event == TIMER_EVENT_UPDATE) {
         // executes at 1kHz
-        encoder_read_and_update_angles();
+        encoder.update();
     }
 }
 
 inline void test_vf_drive() {
     // TIM1 CH1/2/3 SVPWM setup
-    initialize_phase_pwm_timer();
+    initialize_phase_pwm_timer(tim1_callback_open);
 
     g_open_loop.angle = 0.0f;
     g_open_loop.modulation = g_open_loop.modulation_start;
@@ -70,14 +70,16 @@ inline void test_vf_drive() {
     timer_start(&(hw.pwm_timer));
 
     // Encoder bus
-    calibrate_encoder_sign_and_offset();
+    encoder.calibrate_sign_and_offset();
+    // Start velocity estimation from a clean state.
+    encoder.reset_velocity();
     // Read the encoder at the final calibrated rotor position.
-    encoder_read_and_update_angles();
+    encoder.update();
     // Start the open-loop electrical field from the
     // same electrical angle as the encoder.
-    g_open_loop.angle = encoder_read->electrical_angle;
-    // Discard any velocity-estimator state accumulated during calibration.
-    reset_velocity_estimator();
+    // Snapshot read encoder
+    const auto& enc = encoder.read();
+    g_open_loop.angle = enc.electrical_angle;
     // Encoder TIM2 read setup
     initialize_encoder_timer(tim2_encoder_vfd_callback);
 
@@ -109,8 +111,9 @@ inline void test_vf_drive() {
         }
         static uint32_t last_log_ms = 0;
         if ((uint32_t)(now_ms - last_log_ms) >= 500U) {
+            const auto& enc = encoder.read();
             float phase_error =
-                g_open_loop.angle - encoder_read->electrical_angle;
+                g_open_loop.angle - enc.electrical_angle;
             // wrap phase error to [-PI, PI].
             if (phase_error > PI)
                 phase_error -= TWO_PI;
@@ -119,11 +122,11 @@ inline void test_vf_drive() {
             LOG << "mod: " << g_open_loop.modulation
                 << " cmd_ef: " << g_open_loop.electrical_frequency
                 << " cmd_ea: " << g_open_loop.angle
-                << " enc_ea: " << encoder_read->electrical_angle
+                << " enc_ea: " << enc.electrical_angle
                 << " ph_err: " << phase_error
-                << " ma: " << encoder_read->mechanical_angle
-                << " wm: " << encoder_read->mechanical_velocity
-                << " we: " << encoder_read->electrical_velocity;
+                << " ma: " << enc.mechanical_angle
+                << " wm: " << enc.mechanical_velocity
+                << " we: " << enc.electrical_velocity;
             last_log_ms = now_ms;
         }
     }
