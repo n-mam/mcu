@@ -47,6 +47,7 @@ struct encoder_t {
     float velocity_time_constant_s = 0.005f;
     float raw_velocity = 0.0f;
     bool velocity_initialized = false;
+    serial::i2c *encoder_i2c = nullptr;
 
     // State access
     inline const encoder_state_t& read() const {
@@ -164,7 +165,7 @@ struct encoder_t {
         // contains a complete, coherent state before modifying it.
         *write_state = *read_state;
         // Read AS5600
-        write_state->raw = read_raw(*hw.encoder_i2c);
+        write_state->raw = read_raw(*encoder_i2c);
         // Mechanical angle
         write_state->mechanical_angle =
             raw_to_mechanical_angle(write_state->raw);
@@ -200,11 +201,10 @@ struct encoder_t {
         write_state = tmp;
     }
 
-    inline bool calibrate_sign_and_offset() {
+    inline bool calibrate_sign_and_offset(timer_config_t *timer) {
         // Encoder sign and electrical-zero calibration
-        hw.encoder_i2c = new serial::i2c(3, 10, 400'000, I2C2, GPIOB);
-        auto& bus = *hw.encoder_i2c;
-        auto* timer = &hw.pwm_timer;
+        encoder_i2c = new serial::i2c(3, 10, 400'000, I2C2, GPIOB);
+        auto& bus = *encoder_i2c;
         constexpr float CALIBRATION_VOLTAGE = 1.5f;
         // Force rotor to electrical angle 0.
         // Valpha = +V
@@ -280,7 +280,5 @@ struct encoder_t {
         }
     }
 };
-
-inline encoder_t encoder;
 
 #endif

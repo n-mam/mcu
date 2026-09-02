@@ -14,7 +14,7 @@ struct speed_control_t {
         pi.reset();
     }
 
-    inline void speed_control(float mechanical_velocity, float dt) {
+    inline float speed_control(float mechanical_velocity, float dt) {
         speed_measured = mechanical_velocity;
         const float error = speed_ref - speed_measured;
 
@@ -26,10 +26,8 @@ struct speed_control_t {
         if (iq_ref > iq_ref_limit)  iq_ref = iq_ref_limit;
         if (iq_ref < -iq_ref_limit) iq_ref = -iq_ref_limit;
 
-        cc.q_ref = iq_ref;
+        return iq_ref;
     }
 };
-
-inline speed_control_t sc;
 
 #endif

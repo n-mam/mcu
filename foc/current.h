@@ -108,6 +108,4 @@ struct current_control_t {
 
 };
 
-inline current_control_t cc;
-
 #endif
