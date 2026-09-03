@@ -34,7 +34,6 @@ struct current_control_t {
     float vd = 0.0f;
     float vq = 0.0f;
     float modulation = 0.0f;
-    float current_limit = 0.8f;
     // current sense
     // Measured; in amps
     float ia = 0.0f;

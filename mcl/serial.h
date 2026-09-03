@@ -29,6 +29,12 @@ struct serial {
         #endif
     }
 
+    std::string receiveDma() {
+        #if defined (STM32)
+        return uart2.processRx();
+        #endif
+    }
+
     #if defined (STM32)
     mcl::uart uart2;
     #endif

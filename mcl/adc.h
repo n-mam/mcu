@@ -88,33 +88,34 @@ typedef enum {
 } ADC_ExternalTrigger_t;
 #endif
 
-typedef void (*adc_interrupt_callback_reg_t)(int);
-typedef void (*adc_interrupt_callback_inj_t)(uint16_t, uint16_t);
+typedef void (*adc_regular_callback_t)(int);
+typedef void (*adc_injected_callback_t)(uint16_t, uint16_t, void *);
 
 typedef struct {
-    ADC_TypeDef * _instance;
-    ADC_Channel_t _channel;
-    ADC_Alignment_t _alignment;
-    ADC_Resolution_t _resolution;
-    ADC_SampleTime_t _sampleTime;
-    ADC_ExternalTrigger_t _externalTrigger;
-    adc_interrupt_callback_reg_t _interrupt_callback_regular;
-    adc_interrupt_callback_inj_t _interrupt_callback_injected;
+    void *ctx;
+    ADC_TypeDef *instance;
+    ADC_Channel_t channel;
+    ADC_Alignment_t alignment;
+    ADC_Resolution_t resolution;
+    ADC_SampleTime_t sampleTime;
+    ADC_ExternalTrigger_t externalTrigger;
+    adc_regular_callback_t interrupt_callback_regular;
+    adc_injected_callback_t interrupt_callback_injected;
 } ADC_Config_t;
 
 inline const ADC_Config_t *adc_cfg_table[3] = {nullptr};
 
 static inline int adc_get_index(const ADC_Config_t *cfg) {
-    if (cfg->_instance == ADC1) {
+    if (cfg->instance == ADC1) {
         return 0;
     }
     #if defined(ADC2)
-    if (cfg->_instance == ADC2) {
+    if (cfg->instance == ADC2) {
         return 1;
     }
     #endif
     #if defined(ADC3)
-    if (cfg->_instance == ADC3) {
+    if (cfg->instance == ADC3) {
         return 2;
     }
     #endif
@@ -154,50 +155,50 @@ static inline void adc_set_config(const ADC_Config_t *cfg) {
 static inline void adc_init(const ADC_Config_t *cfg) {
     adc_set_config(cfg);
     // ADC off
-    cfg->_instance->CR2 = 0;
+    cfg->instance->CR2 = 0;
     // Resolution
-    cfg->_instance->CR1 &= ~(3UL << 24);
-    cfg->_instance->CR1 |= ((uint32_t)cfg->_resolution << 24);
+    cfg->instance->CR1 &= ~(3UL << 24);
+    cfg->instance->CR1 |= ((uint32_t)cfg->resolution << 24);
     // ADC interrupt on overruns
-    cfg->_instance->CR1 |= ADC_CR1_OVRIE;
+    cfg->instance->CR1 |= ADC_CR1_OVRIE;
     // Alignment
-    if(cfg->_alignment == ADC_ALIGN_LEFT) {
-        cfg->_instance->CR2 |= ADC_CR2_ALIGN;
+    if(cfg->alignment == ADC_ALIGN_LEFT) {
+        cfg->instance->CR2 |= ADC_CR2_ALIGN;
     } else {
-        cfg->_instance->CR2 &= ~ADC_CR2_ALIGN;
+        cfg->instance->CR2 &= ~ADC_CR2_ALIGN;
     }
     // one conversion
-    cfg->_instance->SQR1 = 0;
+    cfg->instance->SQR1 = 0;
     // channel
-    cfg->_instance->SQR3 = cfg->_channel;
+    cfg->instance->SQR3 = cfg->channel;
     // sample time
-    if(cfg->_channel <= 9) {
-        cfg->_instance->SMPR2 &= ~(7UL << (cfg->_channel * 3));
-        cfg->_instance->SMPR2 |= ((uint32_t)cfg->_sampleTime << (cfg->_channel * 3));
+    if(cfg->channel <= 9) {
+        cfg->instance->SMPR2 &= ~(7UL << (cfg->channel * 3));
+        cfg->instance->SMPR2 |= ((uint32_t)cfg->sampleTime << (cfg->channel * 3));
     } else {
-        uint32_t shift = (cfg->_channel - 10) * 3;
-        cfg->_instance->SMPR1 &= ~(7UL << shift);
-        cfg->_instance->SMPR1 |= ((uint32_t)cfg->_sampleTime << shift);
+        uint32_t shift = (cfg->channel - 10) * 3;
+        cfg->instance->SMPR1 &= ~(7UL << shift);
+        cfg->instance->SMPR1 |= ((uint32_t)cfg->sampleTime << shift);
     }
     // External trigger configuration
-    cfg->_instance->CR2 &= ~(ADC_CR2_EXTSEL | ADC_CR2_EXTEN);
+    cfg->instance->CR2 &= ~(ADC_CR2_EXTSEL | ADC_CR2_EXTEN);
     // Select external trigger source
-    if (cfg->_externalTrigger != ADC_TRIGGER_SOFTWARE) {
-        cfg->_instance->CR2 |=
-            ((uint32_t)cfg->_externalTrigger << ADC_CR2_EXTSEL_Pos);
+    if (cfg->externalTrigger != ADC_TRIGGER_SOFTWARE) {
+        cfg->instance->CR2 |=
+            ((uint32_t)cfg->externalTrigger << ADC_CR2_EXTSEL_Pos);
         // Enable rising-edge trigger
-        cfg->_instance->CR2 |= ADC_CR2_EXTEN_0;
+        cfg->instance->CR2 |= ADC_CR2_EXTEN_0;
     }
     // Disable continuous mode
-    cfg->_instance->CR2 &= ~ADC_CR2_CONT;
+    cfg->instance->CR2 &= ~ADC_CR2_CONT;
     // Enable DMA transfer with this ADC
-    cfg->_instance->CR2 |= ADC_CR2_DMA;
+    cfg->instance->CR2 |= ADC_CR2_DMA;
     // Keep DMA requests flowing after every conversion.
-    cfg->_instance->CR2 |= ADC_CR2_DDS;
+    cfg->instance->CR2 |= ADC_CR2_DDS;
     // EOC after each conversion
-    cfg->_instance->CR2 |= ADC_CR2_EOCS;
+    cfg->instance->CR2 |= ADC_CR2_EOCS;
     // clear any pending ADC flags
-    cfg->_instance->SR = 0;
+    cfg->instance->SR = 0;
     // Enable ADC IRQ in NVIC
     NVIC_EnableIRQ(ADC_IRQn);
     // start pending
@@ -205,33 +206,44 @@ static inline void adc_init(const ADC_Config_t *cfg) {
 
 static inline void adc_enable(const ADC_Config_t *cfg) {
     // Clear ADC status flags (especially OVR)
-    cfg->_instance->SR = 0;
+    cfg->instance->SR = 0;
     // Enable ADC
-    cfg->_instance->CR2 |= ADC_CR2_ADON;
+    cfg->instance->CR2 |= ADC_CR2_ADON;
     // Wait briefly
     mcl::delay_us(10);
 }
 
 static inline bool adc_is_complete(const ADC_Config_t *cfg) {
-    return (cfg->_instance->SR & ADC_SR_EOC);
+    return (cfg->instance->SR & ADC_SR_EOC);
 }
 
 static inline void adc_start_conversion(const ADC_Config_t *cfg) {
-    cfg->_instance->CR2 |= ADC_CR2_SWSTART;
+    cfg->instance->CR2 |= ADC_CR2_SWSTART;
 }
 
 static inline uint16_t adc_software_read(const ADC_Config_t *cfg) {
     // clear old conversion flag
-    cfg->_instance->SR &= ~ADC_SR_EOC;
+    cfg->instance->SR &= ~ADC_SR_EOC;
     adc_start_conversion(cfg);
     while(!adc_is_complete(cfg));
-    return (uint16_t)cfg->_instance->DR;
+    return (uint16_t)cfg->instance->DR;
+}
+
+static inline void adc_stop(ADC_TypeDef *adc) {
+    // Disable injected end-of-conversion interrupt
+    adc->CR1 &= ~ADC_CR1_JEOCIE;
+    // Disable external trigger for injected conversions
+    adc->CR2 &= ~ADC_CR2_JEXTEN;
+    // Disable ADC interrupt
+    NVIC_DisableIRQ(ADC_IRQn);
+    // Clear status flags
+    adc->SR = 0;
 }
 
 extern "C" void ADC_IRQHandler(void) {
     const ADC_Config_t *cfg = adc_cfg_table[0]; // ADC1 for now
     if (!cfg) return;
-    ADC_TypeDef *adc = cfg->_instance;
+    ADC_TypeDef *adc = cfg->instance;
     // Injected conversion complete.
     // JDR1 = phase A
     // JDR2 = phase B
@@ -239,15 +251,15 @@ extern "C" void ADC_IRQHandler(void) {
         uint16_t jdr1 = (uint16_t)adc->JDR1;
         uint16_t jdr2 = (uint16_t)adc->JDR2;
         adc->SR &= ~ADC_SR_JEOC;
-        if (cfg->_interrupt_callback_injected) {
-            cfg->_interrupt_callback_injected(jdr1, jdr2);
+        if (cfg->interrupt_callback_injected) {
+            cfg->interrupt_callback_injected(jdr1, jdr2, cfg->ctx);
         }
     }
     // Existing regular ADC overrun handling.
     if (adc->SR & ADC_SR_OVR) {
         adc->SR &= ~ADC_SR_OVR;
-        if (cfg->_interrupt_callback_regular) {
-            cfg->_interrupt_callback_regular(0);
+        if (cfg->interrupt_callback_regular) {
+            cfg->interrupt_callback_regular(0);
         }
     }
 }

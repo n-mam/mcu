@@ -17,7 +17,9 @@ struct uart {
           rxPin(rxPin),
           gpioPort(gpioPort),
           instance(instance),
-          txDmaStream(DMA1_Stream6) {
+          txDmaStream(DMA1_Stream6),
+          rxDmaStream(DMA1_Stream5),
+          rxReadPosition(0) {
             init(txPin, rxPin, baudRate, wordLength, enableParity);
     }
 
@@ -69,13 +71,49 @@ struct uart {
         #endif
         // Enable Transmitter and Receiver
         instance->CR1 |= USART_CR1_TE | USART_CR1_RE;
-        // Enable USART TX DMA request
-        instance->CR3 |= USART_CR3_DMAT;
+        // Enable USART TX and RX DMA requests
+        instance->CR3 |= USART_CR3_DMAT | USART_CR3_DMAR;
         // Enable USART
         instance->CR1 |= USART_CR1_UE;
         // Initialize TX DMA
         initTxDma();
+        // Initialize RX DMA
+        initRxDma();
     }
+
+    void initRxDma() {
+        // DMA1 clock is already enabled by initTxDma(),
+        // but keeping this here makes the function self-contained.
+        RCC->AHB1ENR |= RCC_AHB1ENR_DMA1EN;
+        // Disable RX DMA stream
+        rxDmaStream->CR &= ~DMA_SxCR_EN;
+        // Wait until actually disabled
+        while (rxDmaStream->CR & DMA_SxCR_EN);
+        // Clear configuration
+        rxDmaStream->CR = 0;
+        // USART2_RX:
+        // DMA1 Stream 5, Channel 4
+        rxDmaStream->CR |= (4 << DMA_SxCR_CHSEL_Pos);
+        // Peripheral -> memory
+        rxDmaStream->CR &= ~DMA_SxCR_DIR;
+        // Increment memory address
+        rxDmaStream->CR |= DMA_SxCR_MINC;
+        // Peripheral size = 8 bits
+        rxDmaStream->CR &= ~DMA_SxCR_PSIZE;
+        // Memory size = 8 bits
+        rxDmaStream->CR &= ~DMA_SxCR_MSIZE;
+        // Circular mode
+        rxDmaStream->CR |= DMA_SxCR_CIRC;
+        // USART2 data register
+        rxDmaStream->PAR = (uint32_t)&instance->DR;
+        // RX buffer
+        rxDmaStream->M0AR = (uint32_t)rxBuffer;
+        // Number of bytes in buffer
+        rxDmaStream->NDTR = RX_BUFFER_SIZE;
+        // Start RX DMA
+        rxDmaStream->CR |= DMA_SxCR_EN;
+    }
+
 
     void initTxDma() {
         // Enable DMA1 clock
@@ -116,7 +154,7 @@ struct uart {
         #endif
     }
 
-    void transmit(const uint8_t *data, uint16_t size) {
+    void transmitDma(const uint8_t *data, uint16_t size) {
         // Don't start another transfer while DMA is active
         if (txDmaStream->CR & DMA_SxCR_EN) return;
         // Don't overflow our internal buffer
@@ -138,6 +176,10 @@ struct uart {
         txDmaStream->CR |= DMA_SxCR_EN;
     }
 
+    void transmit(const uint8_t *data, uint16_t size) {
+        transmitDma(data, size);
+    }
+
     uint8_t receive() {
         #if defined (STM32F4)
         while (!(instance->SR & USART_SR_RXNE));
@@ -157,6 +199,29 @@ struct uart {
         }
     }
 
+    std::string processRx() {
+        const uint16_t writePosition =
+            RX_BUFFER_SIZE - rxDmaStream->NDTR;
+        while (rxReadPosition != writePosition) {
+            const char c = static_cast<char>(rxBuffer[rxReadPosition]);
+            rxReadPosition = (rxReadPosition + 1) % RX_BUFFER_SIZE;
+            if (c == '\r') continue;
+            if (c == '\n') {
+                if (commandLength == 0) continue;
+                std::string command(commandBuffer, commandLength);
+                commandLength = 0;
+                return command;
+            }
+            if (commandLength < COMMAND_BUFFER_SIZE - 1) {
+                commandBuffer[commandLength++] = c;
+            } else {
+                commandLength = 0;
+            }
+        }
+        return {};
+    }
+
+
     bool txBusy() {
         return (txDmaStream->CR & DMA_SxCR_EN) != 0;
     }
@@ -168,8 +233,15 @@ struct uart {
     GPIO_TypeDef *gpioPort;
     USART_TypeDef *instance;
     DMA_Stream_TypeDef *txDmaStream;
+    DMA_Stream_TypeDef *rxDmaStream;
     static constexpr uint16_t TX_BUFFER_SIZE = 768;
     uint8_t txBuffer[TX_BUFFER_SIZE];
+    static constexpr uint16_t RX_BUFFER_SIZE = 256;
+    uint8_t rxBuffer[RX_BUFFER_SIZE];
+    static constexpr uint16_t COMMAND_BUFFER_SIZE = 128;
+    char commandBuffer[COMMAND_BUFFER_SIZE];
+    uint16_t rxReadPosition;
+    uint16_t commandLength = 0;
 };
 
 }

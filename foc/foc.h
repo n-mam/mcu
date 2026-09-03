@@ -8,22 +8,19 @@
 #include <foc/speed.h>
 
 struct foc_controller_t {
-
     hardware_t hw{};
     encoder_t encoder;
     speed_control_t sc;
     current_control_t cc;
-    static foc_controller_t *active;
 
     enum foc_state { stopped, running, fault };
     foc_state state = foc_state::stopped;
 
     void start() {
-        active = this;
         // TIM1 CH1/2/3 SVPWM setup
-        hw.initialize_phase_pwm_timer(nullptr);
+        hw.initialize_phase_pwm_timer(nullptr, nullptr);
         // CSA ADC setup
-        hw.initialize_adc_hardware(&adc_trampoline);
+        hw.initialize_adc_hardware(&adc_trampoline, this);
         // Disbale till we calibrate CSA and the encoder
         state = foc_state::stopped;
         // Zero current ADC bias calibration
@@ -31,7 +28,7 @@ struct foc_controller_t {
         // Calibrate encoder's sign and zero offset
         encoder.calibrate_sign_and_offset(&hw.pwm_timer);
         // Encoder TIM2 read setup
-        hw.initialize_encoder_timer(&encoder_trampoline);
+        hw.initialize_encoder_timer(&encoder_trampoline, this);
         // With vbus = 9.49 V
         // v_limit = 9.49 / sqrt(3) ≈ 5.48 V
         // so each PI can request up to ±5.48 V.
@@ -59,13 +56,12 @@ struct foc_controller_t {
         float inv_SystemCoreClock = 1 / (float)SystemCoreClock;
         uint32_t last_ramp_ms = mcl::time_ms();
 
-        while (state == foc_state::running) {
+        while (!exit_foc()) {
             uint32_t now_cycles = DWT->CYCCNT;
             total_cycles += (uint32_t)(now_cycles - last_cycles);
             last_cycles = now_cycles;
             float elapsed_s = (float)total_cycles * inv_SystemCoreClock;
             uint32_t now_ms = mcl::time_ms();
-
             if ((uint32_t)(now_ms - last_ramp_ms) >= 1U) {
                 sc.speed_ref = ramp_linear(
                     SPEED_START,
@@ -74,25 +70,43 @@ struct foc_controller_t {
                     elapsed_s);
                 last_ramp_ms = now_ms;
             }
-
             if (total_cycles - last_log_cycles >= log_period_cycles) {
                 last_log_cycles = total_cycles;
                 log_foc_state(elapsed_s);
             }
         }
-        timer_stop(&hw.pwm_timer);
     }
 
     void stop() {
+        // Stop PWM timer outputs
+        timer_stop(&hw.pwm_timer);
+        // Stop ADC DMA
+        hw.stop_adc();
+        // Marked controller as stopped
         state = foc_state::stopped;
     }
 
-    static void adc_trampoline(uint16_t a, uint16_t b) {
-        if (active) active->adc_callback(a, b);
+    bool exit_foc() {
+        if (state == foc_state::stopped) {
+            return true;
+        }
+        if (getInstance<config>()->shouldExit()) {
+            stop();
+            return true;
+        }
+        return false;
     }
 
-    static void encoder_trampoline(timer_event_t ev) {
-        if (active) active->encoder_callback(ev);
+    static void adc_trampoline(uint16_t a, uint16_t b, void * context) {
+        if (context) {
+            ((foc_controller_t *)context)->adc_callback(a, b);
+        }
+    }
+
+    static void encoder_trampoline(timer_event_t ev, void *context) {
+        if (context) {
+            ((foc_controller_t *)context)->encoder_callback(ev);
+        }
     }
 
     void adc_callback(uint16_t raw_a, uint16_t raw_b) {
@@ -150,8 +164,6 @@ struct foc_controller_t {
         }
     }
 };
-
-foc_controller_t *foc_controller_t::active = nullptr;
 
 inline void test_foc() {
     static foc_controller_t foc{};

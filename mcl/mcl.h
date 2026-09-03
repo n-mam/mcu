@@ -117,6 +117,45 @@ bool uart_message_timer(__unused struct repeating_timer *t) {
 
 mcl::serial *p_serial = nullptr;
 
+#if defined(STM32)
+inline void process_uart() {
+    auto cmd = mcl::p_serial->receiveDma();
+    if (cmd.empty()) return;
+    if (!getInstance<config>()->parseCommand(cmd)) {
+        LOG << "invalid command: " << cmd;
+    }
+}
+
+void tim6_init(uint32_t frequency_hz) {
+    // Enable TIM6 peripheral clock
+    enableClockForTimer(TIM6);
+    // TIM6 timer clock = 90 MHz on STM32F446
+    uint32_t timer_clock = apb1TimerClock();
+    // Calculate prescaler and auto-reload
+    uint32_t period = timer_clock / frequency_hz;
+    TIM6->PSC = 0;
+    TIM6->ARR = period - 1;
+    // Generate an update event to load the registers
+    TIM6->EGR = TIM_EGR_UG;
+    // Clear update flag
+    TIM6->SR &= ~TIM_SR_UIF;
+    // Enable update interrupt
+    TIM6->DIER |= TIM_DIER_UIE;
+    // Enable TIM6 interrupt in NVIC
+    NVIC_EnableIRQ(TIM6_DAC_IRQn);
+    // Start timer
+    TIM6->CR1 |= TIM_CR1_CEN;
+}
+
+extern "C" void TIM6_DAC_IRQHandler(void) {
+    if (TIM6->SR & TIM_SR_UIF) {
+        TIM6->SR &= ~TIM_SR_UIF;
+        // 1kHz, every 1 ms
+        process_uart();
+    }
+}
+#endif
+
 inline void initialize_logging(mcl::log::level l) {
     #if defined (PICO_CYW43_SUPPORTED)
     auto server = getInstance<tcp::server>();
@@ -208,6 +247,7 @@ inline void initialize() {
     mcl::sleep_ms(2500);
     mcl::initialize_logging(mcl::log::info);
     #if defined (STM32)
+    tim6_init(50);
     std::cout << "SystemCoreClock: " << SystemCoreClock << std::endl;
     #endif
 }

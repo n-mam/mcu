@@ -28,10 +28,11 @@ typedef enum {
     TIMER_EVENT_TRIGGER,
 } timer_event_t;
 
-typedef void (*timer_interrupt_callback_t)(timer_event_t);
+typedef void (*timer_interrupt_callback_t)(timer_event_t, void *);
 
 typedef struct {
     cms mode;
+    void *ctx;
     float *lut;
     uint32_t arr;
     uint32_t lutSize;
@@ -312,7 +313,7 @@ extern "C" void TIM2_IRQHandler(void) {
     if (TIM2->SR & TIM_SR_UIF) {
         TIM2->SR &= ~TIM_SR_UIF;
         if (cfg->interrupt_callback) {
-            cfg->interrupt_callback(TIMER_EVENT_UPDATE);
+            cfg->interrupt_callback(TIMER_EVENT_UPDATE, cfg->ctx);
         }
     }
 }
@@ -323,7 +324,7 @@ extern "C" void TIM1_UP_TIM10_IRQHandler(void) {
     if (TIM1->SR & TIM_SR_UIF) {
         TIM1->SR &= ~TIM_SR_UIF;
         if (cfg->interrupt_callback) {
-            cfg->interrupt_callback(TIMER_EVENT_UPDATE);
+            cfg->interrupt_callback(TIMER_EVENT_UPDATE, nullptr);
         }
     }
 }

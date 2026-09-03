@@ -42,15 +42,16 @@ int main(void) {
     auto *c = getInstance<config>();
     //while(!c->getKeyValue(config::key::action)) { mcl::send_discovery(); };
     while (true) {
-        auto action = 24; //static_cast<int>(c->getKeyValue(config::key::action));
-        LOG << "waiting for new action.. " << action;
+        auto test = static_cast<int>(c->getKeyValue(config::key::action));
+        LOG << "waiting for new action.. " << test;
         auto it = std::ranges::find_if(dispatch_table,
-            [action](const auto& e){ return e.first == action; });
+            [test](const auto& e){ return e.first == test; });
         if (it != std::end(dispatch_table)) {
             it->second();
         } else {
-            LOG << "unknown action: " << action;
+            LOG << "unknown action: " << test;
         }
+        test = -1;
         mcl::sleep_ms(500);
     }
 }

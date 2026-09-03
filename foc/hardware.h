@@ -6,13 +6,11 @@ constexpr float ADC_MAXCNT = 4095.0f;
 constexpr float VBUS = 9.49f;
 constexpr float INV_VBUS = 1 / VBUS;
 
-typedef void (*pfn_tim_callback_t)(timer_event_t);
-typedef void (*pfn_adc_injected_callback_t)(uint16_t, uint16_t);
-
 struct hardware_t {
 
     timer_config_t pwm_timer{};
     timer_config_t encoder_timer{};
+    ADC_Config_t adc_cfg{};
 
     // CSA calibration zero current bias
     float bias_a = 0.0f;
@@ -22,8 +20,9 @@ struct hardware_t {
     uint32_t samples = 0;
     bool calibrating = false;
 
-    inline void initialize_phase_pwm_timer(pfn_tim_callback_t callback) {
+    inline void initialize_phase_pwm_timer(timer_interrupt_callback_t callback, void * context) {
         auto& tm = pwm_timer;
+        tm.ctx = context;
         tm.instance = TIM1;
         tm.interrupt_callback = callback;
         tm.mode = cms::ca1;
@@ -44,7 +43,24 @@ struct hardware_t {
         timer_start_channel(&tm, 3, true);
     }
 
-    inline void init_current_sampling() {
+    inline void initialize_encoder_timer(timer_interrupt_callback_t callback, void * context) {
+        // Configure encoder reads via TIM2
+        timer_config_t& tim2 = encoder_timer;
+        tim2.ctx = context;
+        tim2.instance = TIM2;
+        tim2.mode = cms::ea;
+        tim2.interrupt_callback = callback;
+        // Configure TIM2 and make its counter clock 1 MHz
+        timer_init(&tim2);
+        // Configure update frequency = 1kHz
+        timer_set_frequency(&tim2, 1000);
+        // Register/enable TIM2 update interrupt
+        timer_enable_interrupt(&tim2);
+        // Start TIM2
+        timer_start(&tim2);
+    }
+
+    inline void initialize_current_sampling() {
         // Enable GPIOA clock and
         // configure PA0 and PA1 to analog
         adc_gpio_init(GPIOA, {0, 1});
@@ -119,14 +135,18 @@ struct hardware_t {
         NVIC_EnableIRQ(ADC_IRQn);
     }
 
-    inline void initialize_adc_hardware(pfn_adc_injected_callback_t callback) {
+    inline void initialize_adc_hardware(adc_injected_callback_t callback, void *context) {
         // CH4 trigger + ADC1 injected sequence
-        init_current_sampling();
-        static ADC_Config_t cfg{};
-        cfg._instance = ADC1;
-        cfg._interrupt_callback_regular = nullptr;
-        cfg._interrupt_callback_injected = callback;
-        adc_set_config(&cfg);
+        initialize_current_sampling();
+        adc_cfg.ctx = context;
+        adc_cfg.instance = ADC1;
+        adc_cfg.interrupt_callback_regular = nullptr;
+        adc_cfg.interrupt_callback_injected = callback;
+        adc_set_config(&adc_cfg);
+    }
+
+    inline void stop_adc() {
+        adc_stop(ADC1);
     }
 
     inline void calibrate_current_sensor() {
@@ -165,22 +185,6 @@ struct hardware_t {
             sum_b += raw_b;
             ++samples;
         }
-    }
-
-    inline void initialize_encoder_timer(pfn_tim_callback_t callback) {
-        // Configure encoder reads via TIM2
-        timer_config_t& tim2 = encoder_timer;
-        tim2.instance = TIM2;
-        tim2.mode = cms::ea;
-        tim2.interrupt_callback = callback;
-        // Configure TIM2 and make its counter clock 1 MHz
-        timer_init(&tim2);
-        // Configure update frequency = 1kHz
-        timer_set_frequency(&tim2, 1000);
-        // Register/enable TIM2 update interrupt
-        timer_enable_interrupt(&tim2);
-        // Start TIM2
-        timer_start(&tim2);
     }
 };
 

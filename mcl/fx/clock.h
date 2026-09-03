@@ -279,7 +279,14 @@ inline void enableClockForTimer(TIM_TypeDef *timer) {
         #elif defined (STM32H7)
             RCC->APB1LENR |= RCC_APB1LENR_TIM5EN;
         #endif
+    } else if (timer == TIM6) {
+        #if defined (STM32F4) || defined (STM32F7)
+            RCC->APB1ENR |= RCC_APB1ENR_TIM6EN;
+        #elif defined (STM32H7)
+            RCC->APB1LENR |= RCC_APB1LENR_TIM6EN;
+        #endif
     }
+
 }
 
 inline void enableClockForGpio(GPIO_TypeDef *port) {

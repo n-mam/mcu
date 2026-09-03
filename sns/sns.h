@@ -240,6 +240,7 @@ inline void adc_tim_dma_test() {
     adc_gpio_init(GPIOA, {0});
     // ADC configuration
     ADC_Config_t adc = {
+        nullptr,
         ADC1,                 // instance
         ADC_CH0,              // channel
         ADC_ALIGN_RIGHT,      // alignment
