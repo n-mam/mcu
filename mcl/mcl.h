@@ -118,11 +118,20 @@ bool uart_message_timer(__unused struct repeating_timer *t) {
 mcl::serial *p_serial = nullptr;
 
 #if defined(STM32)
+typedef void (*config_callback_t)(const command&);
+config_callback_t config_callback = nullptr;
 inline void process_uart() {
-    auto cmd = mcl::p_serial->receiveDma();
-    if (cmd.empty()) return;
-    if (!getInstance<config>()->parseCommand(cmd)) {
-        LOG << "invalid command: " << cmd;
+    auto raw = mcl::p_serial->receiveDma();
+    if (raw.empty()) return;
+    command cmd;
+    if (!getInstance<config>()->parseCommand(raw, cmd)) {
+        LOG << "invalid command: " << raw;
+        return;
+    }
+    // config_callback is set by the
+    // test which will eventually run
+    if (config_callback) {
+        config_callback(cmd);
     }
 }
 

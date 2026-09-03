@@ -51,7 +51,7 @@ int main(void) {
         } else {
             LOG << "unknown action: " << test;
         }
-        test = -1;
+        c->setKeyValue({config::key::action, -1});
         mcl::sleep_ms(500);
     }
 }

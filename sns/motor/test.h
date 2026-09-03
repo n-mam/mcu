@@ -4,7 +4,7 @@ inline void test_m200() {
     auto m200 = mcl::initialize_m200(PWM_PIN_MOTOR, PWM_FREQ_MOTOR);
     while (!getInstance<config>()->shouldExit()) {
         LOG << "looping...1";
-        m200->set_duty_cycle(getInstance<config>()->getKeyValue(config::key::motor) / 20.0);
+        m200->set_duty_cycle(10.0f / 20.0f);
         mcl::sleep_ms(1000);
     }
 }

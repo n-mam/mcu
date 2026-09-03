@@ -8,15 +8,27 @@
 
 #include <mcl/log.h>
 
+struct command {
+    enum class command_type {
+        kv, action, invalid,
+    };
+    KeyValue kv{};
+    std::string action;
+    command_type type =
+        command_type::invalid;
+};
+
+
 struct config {
 
     enum key : uint8_t {
-        ki,
-        kp,
-        kd,
-        delay,
-        motor,
-        servo,
+        s_ref,
+        s_kp,
+        s_ki,
+        iq_ref,
+        id_ref,
+        c_kp,
+        c_ki,
         action,
     };
 
@@ -39,21 +51,24 @@ struct config {
         return getKeyValue(key::action) == -1;
     }
 
-    inline bool parseCommand(const std::string& command) {
-        const auto separator = command.find(':');
-        if (separator == std::string::npos) return false;
-        const std::string name = command.substr(0, separator);
-        const std::string value = command.substr(separator + 1);
-        const auto it = key_lookup.find(name);
-        if (it == key_lookup.end()) return false;
+    inline bool parseCommand(const std::string& raw, command& cmd) {
+        const auto separator = raw.find(':');
+        if (separator == std::string::npos) {
+            cmd.type = command::command_type::action;
+            cmd.action = raw;
+            return true;
+        }
+        const std::string name = raw.substr(0, separator);
+        const std::string value = raw.substr(separator + 1);
+        const auto it = names_key.find(name);
+        if (it == names_key.end()) return false;
         char* end = nullptr;
         const float parsedValue = std::strtof(value.c_str(), &end);
         if (end == value.c_str() || *end != '\0') return false;
-        KeyValue kv;
-        kv.key = static_cast<uint32_t>(it->second);
-        kv.value = parsedValue;
-        LOG << "k:" << kv.key << " v:" << kv.value;
-        getInstance<config>()->setKeyValue(kv);
+        cmd.kv.key = static_cast<uint32_t>(it->second);
+        cmd.kv.value = parsedValue;
+        LOG << "k: " << getKeyName(static_cast<key>(cmd.kv.key)) << ", v: " << cmd.kv.value;
+        getInstance<config>()->setKeyValue(cmd.kv);
         return true;
     }
 
@@ -62,22 +77,24 @@ struct config {
     std::map<config::key, float> key_values;
 
     std::map<config::key, std::string> key_names = {
-        {key::kp, "kp"},
-        {key::ki, "ki"},
-        {key::kd, "kd"},
-        {key::motor, "motor"},
-        {key::servo, "servo"},
-        {key::delay, "delay"},
+        {key::s_ki, "s_ki"},
+        {key::s_kp, "s_kp"},
+        {key::s_ref, "s_ref"},
+        {key::id_ref, "id_ref"},
+        {key::iq_ref, "iq_ref"},
+        {key::c_ki, "c_ki"},
+        {key::c_kp, "c_kp"},
         {key::action, "action"}
     };
 
-    std::map<std::string, key> key_lookup = {
-        {"ki",     key::ki},
-        {"kp",     key::kp},
-        {"kd",     key::kd},
-        {"delay",  key::delay},
-        {"motor",  key::motor},
-        {"servo",  key::servo},
+    std::map<std::string, key> names_key = {
+        {"s_ki", key::s_ki},
+        {"s_kp", key::s_kp},
+        {"s_ref", key::s_ref},
+        {"id_ref", key::id_ref},
+        {"iq_ref", key::iq_ref},
+        {"c_ki", key::c_ki},
+        {"c_kp", key::c_kp},
         {"action", key::action}
     };
 };

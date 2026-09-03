@@ -8,6 +8,7 @@
 #include <foc/speed.h>
 
 struct foc_controller_t {
+
     hardware_t hw{};
     encoder_t encoder;
     speed_control_t sc;
@@ -163,11 +164,58 @@ struct foc_controller_t {
             LOG << std::string(log_buffer, len);
         }
     }
+
+    bool set_config(const KeyValue& kv) {
+        if (kv.key == config::key::s_ref) {
+            sc.speed_ref = kv.value;
+            return true;
+        }
+        if (kv.key == config::key::s_kp) {
+            sc.pi.kp = kv.value;
+            return true;
+        }
+        if (kv.key == config::key::s_ki) {
+            sc.pi.ki = kv.value;
+            return true;
+        }
+        if (kv.key == config::key::iq_ref) {
+            cc.q_ref = kv.value;
+            return true;
+        }
+        if (kv.key == config::key::id_ref) {
+            cc.d_ref = kv.value;
+            return true;
+        }
+        if (kv.key == config::key::c_kp) {
+            cc.q_pi.kp = kv.value;
+            return true;
+        }
+        if (kv.key == config::key::c_ki) {
+            cc.q_pi.ki = kv.value;
+            return true;
+        }
+        return false;
+    }
 };
 
+foc_controller_t foc[2] = {};
+
 inline void test_foc() {
-    static foc_controller_t foc{};
-    foc.start();
+    mcl::config_callback =
+        [](const command& cmd){
+            if (cmd.type == command::command_type::kv) {
+                foc[0].set_config(cmd.kv);
+            } else if (cmd.type == command::command_type::action) {
+                if (cmd.action == "stop") {
+                    foc[0].stop();
+                } else {
+                    LOG << "invalid action";
+                }
+            } else {
+                LOG << "invalid cmd type";
+            }
+        };
+    foc[0].start();
 }
 
 #endif
