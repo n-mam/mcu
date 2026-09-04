@@ -7,13 +7,15 @@
 constexpr float CSA_GAIN   = 50.0f; // V/V, INA240A2
 constexpr float R_SHUNT    = 0.010f; // 10 mill ohms
 
-constexpr float MOTOR_KV = 220.0f; // RPM per volt, from datasheet
-constexpr float MOTOR_RESISTANCE = 2.3f;
-constexpr float MOTOR_INDUCTANCE_H = 0.00086f; // L, henries, from datasheet
+constexpr float MOTOR_KV = 220.0f; // RPM/volt
+constexpr float MOTOR_RESISTANCE = 2.3f; // Ohms
+constexpr float MOTOR_INDUCTANCE_H = 0.00086f; // Henries
+// Current loop bandwidth
 const float CURRENT_BANDWIDTH = 2000.0f;
+// Derived current loop gains
 const float WC = 2.0f * PI * CURRENT_BANDWIDTH;
-inline float Kp = MOTOR_INDUCTANCE_H * WC;
-inline float Ki = MOTOR_RESISTANCE * WC;
+inline float CURRENT_KP = MOTOR_INDUCTANCE_H * WC;
+inline float CURRENT_KI = MOTOR_RESISTANCE * WC;
 
 // Ke (V per mechanical rad/s) derived from KV, then divided by pole pairs
 // to get lambda (V per ELECTRICAL rad/s) -- electrical_velocity is
@@ -65,25 +67,19 @@ struct current_control_t {
     }
 
     inline auto current_control(float electrical_angle, float electrical_velocity, float dt) {
-
         // phase abc to alpha/beta
         auto ab = clarke_transform(ia, ib, ic);
-
         // alpha/beta to d/q
         auto dq = park_transform(ab, electrical_angle);
-
         // These are still currents at this point
         id = dq.d;
         iq = dq.q;
-
         // Current errors.
         const float d_error = d_ref - dq.d;
         const float q_error = q_ref - dq.q;
-
         // Current PI controllers (output is volts now)
         float vd_pi = d_pi.update(d_error, dt);
         float vq_pi = q_pi.update(q_error, dt);
-
         // Feedforward: decoupling + back-EMF compensation.
         // These are recomputed fresh each cycle -- no integrator state,
         // so anti-windup scaling below only needs to touch the PI portion.
@@ -92,7 +88,6 @@ struct current_control_t {
                             + electrical_velocity * MOTOR_LAMBDA;
         vd = vd_pi + vd_ff;
         vq = vq_pi + vq_ff;
-
         // Limit voltage vector to linear SVPWM range.
         const float v_limit = SVPWM_MAX_MODULATION * VBUS;
         const float v_mag = sqrtf(vd * vd + vq * vq);
@@ -101,10 +96,8 @@ struct current_control_t {
             vd *= scale;
             vq *= scale;
         }
-
         return dq_t{vd, vq};
     }
-
 };
 
 #endif

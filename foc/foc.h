@@ -8,7 +8,6 @@
 #include <foc/speed.h>
 
 struct foc_controller_t {
-
     hardware_t hw{};
     encoder_t encoder;
     speed_control_t sc;
@@ -26,8 +25,8 @@ struct foc_controller_t {
         // v_limit = 9.49 / sqrt(3) ≈ 5.48 V
         // so each PI can request up to ±5.48 V.
         const float v_limit = SVPWM_MAX_MODULATION * VBUS;
-        cc.d_pi = { .kp = Kp, .ki = Ki, .integrator = 0.0f, .out_min = -v_limit, .out_max = v_limit };
-        cc.q_pi = { .kp = Kp, .ki = Ki, .integrator = 0.0f, .out_min = -v_limit, .out_max = v_limit };
+        cc.d_pi = { .kp = CURRENT_KP, .ki = CURRENT_KI, .integrator = 0.0f, .out_min = -v_limit, .out_max = v_limit };
+        cc.q_pi = { .kp = CURRENT_KP, .ki = CURRENT_KI, .integrator = 0.0f, .out_min = -v_limit, .out_max = v_limit };
         sc.pi   = { .kp = 0.03f, .ki = 1.4f, .integrator = 0.0f, .out_min = -0.30f, .out_max = 0.30f };
         // manual hold delay
         mcl::delay_ms(2000);

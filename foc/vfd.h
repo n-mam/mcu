@@ -172,9 +172,18 @@ struct vf_controller_t {
     inline void log_vf_state() {
         // Snapshot encoder state.
         const auto& enc = encoder.read();
-        // Electrical phase error:
-        // commanded open-loop angle-
-        // encoder electrical angle
+        // Commanded synchronous electrical angular velocity [rad/s].
+        const float omega_sync = TWO_PI * electrical_frequency;
+        // Measured rotor electrical angular velocity [rad/s].
+        const float omega_rotor = enc.electrical_velocity;
+        // Induction-motor slip angular velocity [rad/s].
+        // omega_slip = omega_sync - omega_rotor
+        // Positive slip means the commanded stator field is rotating
+        // faster than the rotor.
+        const float omega_slip = omega_sync - omega_rotor;
+        // Convert slip angular velocity to electrical frequency [Hz].
+        const float slip_frequency = omega_slip / TWO_PI;
+        // Electrical phase error
         float phase_error = angle - enc.electrical_angle;
         // Wrap phase error to [-PI, PI].
         if (phase_error > PI) {
@@ -184,12 +193,11 @@ struct vf_controller_t {
         }
         char log_buffer[512];
         int len = snprintf(log_buffer, sizeof(log_buffer),
-            "cmd_mod:%f cmd_ef:%f cmd_ea:%f enc_ea:%f ph_err:%f ma:%f wm:%f we:%f",
-                modulation, electrical_frequency, angle, enc.electrical_angle, phase_error,
-                    enc.mechanical_angle, enc.mechanical_velocity, enc.electrical_velocity
-        );
+            "cmd_mod:%f cmd_ef:%f cmd_ea:%f enc_ea:%f ph_err:%f ma:%f wm:%f we:%f wsync:%f wslip:%f slip_f:%f",
+                modulation, electrical_frequency, angle, enc.electrical_angle, phase_error, enc.mechanical_angle,
+                    enc.mechanical_velocity, enc.electrical_velocity, omega_sync, omega_slip, slip_frequency);
         if (len > 0) {
-            if (len >= sizeof(log_buffer)) {
+            if (len >= static_cast<int>(sizeof(log_buffer))) {
                 len = sizeof(log_buffer) - 1;
             }
             LOG << std::string(log_buffer, len);
