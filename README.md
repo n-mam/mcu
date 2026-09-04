@@ -22,11 +22,14 @@
 ### FOC - torque and speed control
 ```
 setup
+- STM32F446RE
 - inline current sensing using 2, INA240A 50v/v gain CSA's
 - TMC6300 combined HS/LS gate driver + power stage
 - DfRobot 2804 3-Phase Brushless DC Motor 12V 2600RPM 300g/cm
 - LM2596S buck converter. 12V supply, pot set to 9.5V
-- STM32F446RE
+- open loop voltage/frequency drive (vfd.h)
+- closed loop sensored FOC : INA240A CSA + AS5600 encoder (foc.h)
+- command and control over STM32 VCP UART (use termite or equivalent client app)
 ```
 
 ```

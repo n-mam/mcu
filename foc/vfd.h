@@ -32,6 +32,8 @@ struct vf_controller_t {
     float frequency_end   = 0.5f;
     // Ramp duration [s].
     float ramp_duration_s = 30.0f;
+    // manual v/f drive override
+    bool manual_drive = false;
 
     // TIM1 PWM callback trampoline
     static void pwm_trampoline(timer_event_t event, void *ctx) {
@@ -134,10 +136,12 @@ struct vf_controller_t {
                 const float elapsed_s = (float)(now_ms - ramp_start_ms) * 0.001f;
                 // Voltage and frequency use the same elapsed time,
                 // therefore their ramps remain synchronized.
-                modulation = ramp_linear(
-                    modulation_start, modulation_end, elapsed_s);
-                electrical_frequency = ramp_linear(
-                    frequency_start, frequency_end, elapsed_s);
+                if (!manual_drive) {
+                    modulation = ramp_linear(
+                        modulation_start, modulation_end, elapsed_s);
+                    electrical_frequency = ramp_linear(
+                        frequency_start, frequency_end, elapsed_s);
+                }
                 last_ramp_update_ms = now_ms;
             }
             if ((uint32_t)(now_ms - last_log_ms) >= 500U) {
@@ -148,8 +152,10 @@ struct vf_controller_t {
     }
 
     void stop() {
-        state = vf_state::stopped;
+        // Stop PWM timer outputs
         timer_stop(&hw.pwm_timer);
+        // Marked controller as stopped
+        state = vf_state::stopped;
     }
 
     bool exit_vfd() {
@@ -191,7 +197,12 @@ struct vf_controller_t {
     }
 
     void set_config(const KeyValue& kv) {
-
+        manual_drive = true;
+        if (kv.key == config::key::vf_mod) {
+            modulation = kv.value;
+        } else if (kv.key == config::key::vf_ef) {
+            electrical_frequency = kv.value;
+        }
     }
 };
 
@@ -206,11 +217,7 @@ inline void test_vf_drive() {
             } else if (cmd.type == command::command_type::action) {
                 if (cmd.action == "stop") {
                     vf.stop();
-                } else {
-                    LOG << "invalid action";
                 }
-            } else {
-                LOG << "invalid cmd type";
             }
         };
     vf.start();

@@ -13,6 +13,7 @@ struct foc_controller_t {
     encoder_t encoder;
     speed_control_t sc;
     current_control_t cc;
+    bool manual_drive = false;
 
     enum foc_state { stopped, running, fault };
     foc_state state = foc_state::stopped;
@@ -52,7 +53,9 @@ struct foc_controller_t {
             float elapsed_s = (float)total_cycles * inv_SystemCoreClock;
             uint32_t now_ms = mcl::time_ms();
             if ((uint32_t)(now_ms - last_ramp_ms) >= 1U) {
-                sc.ramp_linear(elapsed_s);
+                if (!manual_drive) {
+                    sc.ramp_linear(elapsed_s);
+                }
                 last_ramp_ms = now_ms;
             }
             if (total_cycles - last_log_cycles >= log_period_cycles) {
@@ -164,8 +167,9 @@ struct foc_controller_t {
         }
     }
 
-    bool set_config(const KeyValue& kv) {
+    void set_config(const KeyValue& kv) {
         if (kv.key == config::key::s_ref) {
+            manual_drive = true;
             sc.speed_ref = kv.value;
         } else if (kv.key == config::key::s_kp) {
             sc.pi.kp = kv.value;
@@ -188,17 +192,13 @@ foc_controller_t foc;
 inline void test_foc() {
     foc = {};
     mcl::config_callback =
-        [](const command& cmd){
+        [](const command& cmd) {
             if (cmd.type == command::command_type::kv) {
                 foc.set_config(cmd.kv);
             } else if (cmd.type == command::command_type::action) {
                 if (cmd.action == "stop") {
                     foc.stop();
-                } else {
-                    LOG << "invalid action";
                 }
-            } else {
-                LOG << "invalid cmd type";
             }
         };
     foc.start();

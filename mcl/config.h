@@ -22,6 +22,8 @@ struct command {
 struct config {
 
     enum key : uint8_t {
+        vf_mod,
+        vf_ef,
         s_ref,
         s_kp,
         s_ki,
@@ -60,6 +62,7 @@ struct config {
         }
         const std::string name = raw.substr(0, separator);
         const std::string value = raw.substr(separator + 1);
+        LOG << "name: " << name << " value: " << value;
         const auto it = names_key.find(name);
         if (it == names_key.end()) return false;
         char* end = nullptr;
@@ -67,7 +70,7 @@ struct config {
         if (end == value.c_str() || *end != '\0') return false;
         cmd.kv.key = static_cast<uint32_t>(it->second);
         cmd.kv.value = parsedValue;
-        LOG << "k: " << getKeyName(static_cast<key>(cmd.kv.key)) << ", v: " << cmd.kv.value;
+        cmd.type = command::command_type::kv;
         getInstance<config>()->setKeyValue(cmd.kv);
         return true;
     }
@@ -77,6 +80,8 @@ struct config {
     std::map<config::key, float> key_values;
 
     std::map<config::key, std::string> key_names = {
+        {key::vf_mod, "vf_mod"},
+        {key::vf_ef, "vf_ef"},
         {key::s_ki, "s_ki"},
         {key::s_kp, "s_kp"},
         {key::s_ref, "s_ref"},
@@ -88,6 +93,8 @@ struct config {
     };
 
     std::map<std::string, key> names_key = {
+        {"vf_mod", key::vf_mod},
+        {"vf_ef", key::vf_ef},
         {"s_ki", key::s_ki},
         {"s_kp", key::s_kp},
         {"s_ref", key::s_ref},
