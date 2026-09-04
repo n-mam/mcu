@@ -34,19 +34,17 @@ struct vf_controller_t {
     float ramp_duration_s = 30.0f;
 
     // TIM1 PWM callback trampoline
-    static void pwm_trampoline(timer_event_t event, void * ctx) {
+    static void pwm_trampoline(timer_event_t event, void *ctx) {
         if (ctx) {
             ((vf_controller_t *)ctx)->pwm_callback(event);
         }
     }
-
     // TIM2 encoder callback trampoline
     static void encoder_trampoline(timer_event_t event, void *ctx) {
         if (ctx) {
             ((vf_controller_t *)ctx)->encoder_callback(event);
         }
     }
-
     // TIM1 PWM callback
     void pwm_callback(timer_event_t event) {
         if (event == TIMER_EVENT_UPDATE &&
@@ -54,7 +52,6 @@ struct vf_controller_t {
             open_loop_update();
         }
     }
-
     // TIM2 encoder callback
     void encoder_callback(timer_event_t event) {
         if (event == TIMER_EVENT_UPDATE) {
@@ -62,7 +59,6 @@ struct vf_controller_t {
             encoder.update();
         }
     }
-
     // Open-loop V/F update
     // Runs from the TIM1 update ISR at 20 kHz.
     void open_loop_update() {
@@ -70,7 +66,7 @@ struct vf_controller_t {
         const float alpha = modulation * cosf(current_angle);
         const float beta = modulation * sinf(current_angle);
         // modulation is already normalized to Vbus.
-        voltage_to_timer_pwm(&hw.pwm_timer,alpha, beta);
+        voltage_to_timer_pwm(&hw.pwm_timer, alpha, beta);
         // Advance electrical angle according to
         // commanded electrical frequency.
         const float angle_step = TWO_PI * electrical_frequency / update_frequency;
@@ -81,6 +77,20 @@ struct vf_controller_t {
         } else if (angle < 0.0f) {
             angle += TWO_PI;
         }
+    }
+
+    inline float ramp_linear(float start, float end, float elapsed_s) {
+            if (ramp_duration_s <= 0.0f) {
+                return end;
+            } else {
+                float frac = elapsed_s / ramp_duration_s;
+                if (frac <= 0.0f)
+                    frac = 0.0f;
+                else if (frac >= 1.0f)
+                    frac = 1.0f;
+                return start +
+                    frac * (end - start);
+            }
     }
 
     void start() {
@@ -113,40 +123,28 @@ struct vf_controller_t {
         const uint32_t ramp_start_ms = mcl::time_ms();
         uint32_t last_ramp_update_ms = ramp_start_ms;
         uint32_t last_log_ms = ramp_start_ms;
-        // Enable V/F operation.
-        // TIM1 ISR will now begin advancing the electrical field.
+        // Enable V/F operation. TIM1 ISR will now
+        // begin advancing the electrical field.
         state = vf_state::running;
 
         // Foreground control loop
-        while (state == vf_state::running) {
+        while (!exit_vfd()) {
             const uint32_t now_ms = mcl::time_ms();
             if ((uint32_t)(now_ms - last_ramp_update_ms) >= 1U) {
                 const float elapsed_s = (float)(now_ms - ramp_start_ms) * 0.001f;
                 // Voltage and frequency use the same elapsed time,
                 // therefore their ramps remain synchronized.
-                modulation =
-                    ramp_linear(
-                        modulation_start,
-                        modulation_end,
-                        ramp_duration_s,
-                        elapsed_s
-                    );
-                electrical_frequency =
-                    ramp_linear(
-                        frequency_start,
-                        frequency_end,
-                        ramp_duration_s,
-                        elapsed_s
-                    );
+                modulation = ramp_linear(
+                    modulation_start, modulation_end, elapsed_s);
+                electrical_frequency = ramp_linear(
+                    frequency_start, frequency_end, elapsed_s);
                 last_ramp_update_ms = now_ms;
             }
-
             if ((uint32_t)(now_ms - last_log_ms) >= 500U) {
                 log_vf_state();
                 last_log_ms = now_ms;
             }
         }
-        timer_stop(&hw.pwm_timer);
     }
 
     void stop() {
@@ -154,9 +152,15 @@ struct vf_controller_t {
         timer_stop(&hw.pwm_timer);
     }
 
-    void fault_stop() {
-        state = vf_state::fault;
-        timer_stop(&hw.pwm_timer);
+    bool exit_vfd() {
+        if (state == vf_state::stopped) {
+            return true;
+        }
+        if (getInstance<config>()->shouldExit()) {
+            stop();
+            return true;
+        }
+        return false;
     }
 
     inline void log_vf_state() {
@@ -174,9 +178,9 @@ struct vf_controller_t {
         }
         char log_buffer[512];
         int len = snprintf(log_buffer, sizeof(log_buffer),
-            "mod:%f cmd_ef:%f cmd_ea:%f enc_ea:%f ph_err:%f ma:%f wm:%f we:%f",
-            modulation, electrical_frequency, angle, enc.electrical_angle, phase_error,
-            enc.mechanical_angle, enc.mechanical_velocity, enc.electrical_velocity
+            "cmd_mod:%f cmd_ef:%f cmd_ea:%f enc_ea:%f ph_err:%f ma:%f wm:%f we:%f",
+                modulation, electrical_frequency, angle, enc.electrical_angle, phase_error,
+                    enc.mechanical_angle, enc.mechanical_velocity, enc.electrical_velocity
         );
         if (len > 0) {
             if (len >= sizeof(log_buffer)) {
@@ -185,10 +189,30 @@ struct vf_controller_t {
             LOG << std::string(log_buffer, len);
         }
     }
+
+    void set_config(const KeyValue& kv) {
+
+    }
 };
 
+vf_controller_t vf;
+
 inline void test_vf_drive() {
-    static vf_controller_t vf{};
+    vf = {};
+    mcl::config_callback =
+        [](const command& cmd){
+            if (cmd.type == command::command_type::kv) {
+                vf.set_config(cmd.kv);
+            } else if (cmd.type == command::command_type::action) {
+                if (cmd.action == "stop") {
+                    vf.stop();
+                } else {
+                    LOG << "invalid action";
+                }
+            } else {
+                LOG << "invalid cmd type";
+            }
+        };
     vf.start();
 }
 

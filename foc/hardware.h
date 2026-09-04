@@ -145,10 +145,6 @@ struct hardware_t {
         adc_set_config(&adc_cfg);
     }
 
-    inline void stop_adc() {
-        adc_stop(ADC1);
-    }
-
     inline void calibrate_current_sensor() {
         auto& tm = pwm_timer;
         // Zero current ADC bias calibration
@@ -185,6 +181,10 @@ struct hardware_t {
             sum_b += raw_b;
             ++samples;
         }
+    }
+
+    inline void stop_adc() {
+        adc_stop(ADC1);
     }
 };
 

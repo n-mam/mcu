@@ -10,6 +10,10 @@ struct speed_control_t {
     float speed_measured = 0.0f;
     float iq_ref_limit = 0.30f;
 
+    float ramp_start = 15.0f;
+    float ramp_end = 1.0f; //0.5f; // 0.25f; OK
+    float ramp_duration_s = 30.0f;
+
     inline void reset() {
         pi.reset();
     }
@@ -27,6 +31,20 @@ struct speed_control_t {
         if (iq_ref < -iq_ref_limit) iq_ref = -iq_ref_limit;
 
         return iq_ref;
+    }
+
+    inline void ramp_linear(float elapsed_s) {
+            if (ramp_duration_s <= 0.0f) {
+                speed_ref = ramp_end;
+            } else {
+                float frac = elapsed_s / ramp_duration_s;
+                if (frac <= 0.0f)
+                    frac = 0.0f;
+                else if (frac >= 1.0f)
+                    frac = 1.0f;
+                speed_ref = ramp_start +
+                    frac * (ramp_end - ramp_start);
+            }
     }
 };
 

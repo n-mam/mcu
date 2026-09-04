@@ -104,18 +104,6 @@ auto voltage_to_timer_pwm(timer_config_t *timer, float alpha, float beta) {
     return duty;
 }
 
-inline float ramp_linear(float start, float end,
-    float duration_s, float elapsed_s) {
-        if (duration_s <= 0.0f)
-            return end;
-        float frac = elapsed_s / duration_s;
-        if (frac <= 0.0f)
-            frac = 0.0f;
-        else if (frac >= 1.0f)
-            frac = 1.0f;
-        return start + frac * (end - start);
-}
-
 inline void log_foc_state(float elapsed_s);
 
 #endif

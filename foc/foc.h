@@ -18,18 +18,9 @@ struct foc_controller_t {
     foc_state state = foc_state::stopped;
 
     void start() {
-        // TIM1 CH1/2/3 SVPWM setup
-        hw.initialize_phase_pwm_timer(nullptr, nullptr);
-        // CSA ADC setup
-        hw.initialize_adc_hardware(&adc_trampoline, this);
-        // Disbale till we calibrate CSA and the encoder
-        state = foc_state::stopped;
-        // Zero current ADC bias calibration
-        hw.calibrate_current_sensor();
-        // Calibrate encoder's sign and zero offset
-        encoder.calibrate_sign_and_offset(&hw.pwm_timer);
-        // Encoder TIM2 read setup
-        hw.initialize_encoder_timer(&encoder_trampoline, this);
+        // setup timers, adc and
+        // calibrate encoders
+        initialize_hardware();
         // With vbus = 9.49 V
         // v_limit = 9.49 / sqrt(3) ≈ 5.48 V
         // so each PI can request up to ±5.48 V.
@@ -50,10 +41,7 @@ struct foc_controller_t {
 
         // cc.d_ref = 0.0f;
         // cc.q_ref = 0.3f;
-        constexpr float SPEED_START = 15.0f;
-        float SPEED_END = 1.0f; //0.5f; // 0.25f; OK
-        constexpr float SPEED_RAMP_DURATION_S = 30.0f;
-        sc.speed_ref = SPEED_START;
+        sc.speed_ref = sc.ramp_start;
         float inv_SystemCoreClock = 1 / (float)SystemCoreClock;
         uint32_t last_ramp_ms = mcl::time_ms();
 
@@ -64,11 +52,7 @@ struct foc_controller_t {
             float elapsed_s = (float)total_cycles * inv_SystemCoreClock;
             uint32_t now_ms = mcl::time_ms();
             if ((uint32_t)(now_ms - last_ramp_ms) >= 1U) {
-                sc.speed_ref = ramp_linear(
-                    SPEED_START,
-                    SPEED_END,
-                    SPEED_RAMP_DURATION_S,
-                    elapsed_s);
+                sc.ramp_linear(elapsed_s);
                 last_ramp_ms = now_ms;
             }
             if (total_cycles - last_log_cycles >= log_period_cycles) {
@@ -149,6 +133,21 @@ struct foc_controller_t {
         }
     }
 
+    inline void initialize_hardware() {
+        // TIM1 CH1/2/3 SVPWM setup
+        hw.initialize_phase_pwm_timer(nullptr, nullptr);
+        // CSA ADC setup
+        hw.initialize_adc_hardware(&adc_trampoline, this);
+        // Disbale till we calibrate CSA and the encoder
+        state = foc_state::stopped;
+        // Zero current ADC bias calibration
+        hw.calibrate_current_sensor();
+        // Calibrate encoder's sign and zero offset
+        encoder.calibrate_sign_and_offset(&hw.pwm_timer);
+        // Encoder TIM2 read setup
+        hw.initialize_encoder_timer(&encoder_trampoline, this);
+    }
+
     inline void log_foc_state(float elapsed_s) {
         // Snapshot read encoder
         const auto& enc = encoder.read();
@@ -168,46 +167,33 @@ struct foc_controller_t {
     bool set_config(const KeyValue& kv) {
         if (kv.key == config::key::s_ref) {
             sc.speed_ref = kv.value;
-            return true;
-        }
-        if (kv.key == config::key::s_kp) {
+        } else if (kv.key == config::key::s_kp) {
             sc.pi.kp = kv.value;
-            return true;
-        }
-        if (kv.key == config::key::s_ki) {
+        } else if (kv.key == config::key::s_ki) {
             sc.pi.ki = kv.value;
-            return true;
-        }
-        if (kv.key == config::key::iq_ref) {
+        } else if (kv.key == config::key::iq_ref) {
             cc.q_ref = kv.value;
-            return true;
-        }
-        if (kv.key == config::key::id_ref) {
+        } else if (kv.key == config::key::id_ref) {
             cc.d_ref = kv.value;
-            return true;
-        }
-        if (kv.key == config::key::c_kp) {
+        } else if (kv.key == config::key::c_kp) {
             cc.q_pi.kp = kv.value;
-            return true;
-        }
-        if (kv.key == config::key::c_ki) {
+        } else if (kv.key == config::key::c_ki) {
             cc.q_pi.ki = kv.value;
-            return true;
         }
-        return false;
     }
 };
 
-foc_controller_t foc[2] = {};
+foc_controller_t foc;
 
 inline void test_foc() {
+    foc = {};
     mcl::config_callback =
         [](const command& cmd){
             if (cmd.type == command::command_type::kv) {
-                foc[0].set_config(cmd.kv);
+                foc.set_config(cmd.kv);
             } else if (cmd.type == command::command_type::action) {
                 if (cmd.action == "stop") {
-                    foc[0].stop();
+                    foc.stop();
                 } else {
                     LOG << "invalid action";
                 }
@@ -215,7 +201,7 @@ inline void test_foc() {
                 LOG << "invalid cmd type";
             }
         };
-    foc[0].start();
+    foc.start();
 }
 
 #endif
