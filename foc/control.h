@@ -1,7 +1,6 @@
 #ifndef CONTROL_H
 #define CONTROL_H
 
-// PI controller
 struct pi_controller_t {
 
     float kp = 0.0f;
@@ -34,22 +33,11 @@ struct pi_controller_t {
             integrator = candidate_integrator;
         }
 
-        const float output =
-            proportional + integrator;
+        const float output = proportional + integrator;
 
         return fminf(fmaxf(output, out_min), out_max);
     }
 
 };
-
-// inline float pi_update(pi_controller_t &pi, float error, float dt) {
-//     pi.integrator += pi.ki * error * dt;
-//     if (pi.integrator > pi.out_max) pi.integrator = pi.out_max;
-//     if (pi.integrator < pi.out_min) pi.integrator = pi.out_min;
-//     float out = pi.kp * error + pi.integrator;
-//     if (out > pi.out_max) out = pi.out_max;
-//     if (out < pi.out_min) out = pi.out_min;
-//     return out;
-// }
 
 #endif

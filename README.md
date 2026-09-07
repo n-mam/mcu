@@ -5,33 +5,33 @@
 - The original ceva hillcrest labs driver for bno085 is used as is (under imu/sh2 folder)
 - bno055.h and bno085.h headers under the root folder are just wrapers over the original bno055/085 drivers with pico specific i2c read/write HAL callbacks.
 - HMC5883L uses NED reference frame (x is the yaw/heading vector) while bno055/085 deafult is ENU (y is the yaw/heading vector)
-- Clone this repository at the same level as other examples under the pico-examples directory.
-- Edit the root CMakeLists.txt of the pico-examples repository and include this repository in the build using add_subdirectory(hmc5883l).
-- Build the examples as usual using 'cmake --build ..'
-- Calibrate the magnetometer first using the calibrate function.
-- Copy the resulting UF2 file (main.uf2) onto the Pico and use PuTTY to check the heading values.
-- Reported heading can be cross-verified using a floating magnetized needle or something equivalent.
 - The heading should vary from 0 degrees (true geographic north) all the way to 360 degrees (one full x-y plane rotation), and then wrap back to 0.
 - all mag/imu headings are pointing to magnetic north. As such, local declination needs to be accounted for.
-- The app directory has a c++ proxy app that reads messages off pico's COM port (usb) connection and publishes them over a websocket server
-- App directory also has a three.js visualizer that maintains a websocket connection to the c++ proxy app.
-- The axis helper gets rotate around the z axis based on the yaw reported by the IMU over USB/UART.
-- MPU6050 + HMC5883L test streams data over uart which can then be used for testing mahony absolute orientation filter (vtk visualizaion in offset repo)
+- MPU6050 + HMC5883L test streams raw data over uart which can then be used for visualizing mahony absolute orientation filter (vtk implementation in the offset repo)
 - Dont use the app folder; that has very old code; any desktop based telemetry/visualization would be in the offset repo
 
 ### FOC - torque and speed control
-```
-setup
-- STM32F446RE
-- inline current sensing using 2, INA240A 50v/v gain CSA's
-- TMC6300 combined HS/LS gate driver + power stage
-- DfRobot 2804 3-Phase Brushless DC Motor 12V 2600RPM 300g/cm
-- LM2596S buck converter. 12V supply, pot set to 9.5V
-- open loop voltage/frequency drive (vfd.h)
-- closed loop sensored FOC : INA240A CSA + AS5600 encoder (foc.h)
-- command and control over STM32 VCP UART (use termite or equivalent client app)
-```
 
+- MCU:STM32F446RE, inline current sensing using 2, INA240A 50v/v gain CSA's
+- TMC6300 combined HS/LS gate driver + power stage
+- DfRobot 2804 3-Phase Brushless DC Motor 12V 2600RPM 300g/cm + AS5600 encoder
+- LM2596S buck converter. 12V supply, pot set to 9.5V
+- Cascaded control loops: position > speed > current
+- Current loop runs at 20 kHz, speed and position loops at 2 kHz
+- Position control is with shortest-path angle wrapping; a
+  commanded target is always approached via the shorter rotational
+  direction across the ±180° boundary rather than spinning the long
+  way around; accepts targets in degrees
+- Feedforward decoupling in the current loop (Ld/Lq cross-coupling
+  and back-EMF compensation) for faster transient response
+- Space-vector PWM modulation with sector-based duty cycle computation
+- Encoder calibration: auto-detects electrical direction
+  (sign) and zero offset on startup
+- Open-loop V/F drive mode (`vfd.h`) is an independent control path
+- command and control over STM32 VCP UART (use termite or equivalent client app)
+- (`pi_plotter.py`) for PI graph visualizations
+
+#### Setup
 ```
 Download and unzip arm-none-eabi toolchain.
 Download and unzip nanopb from the below url
