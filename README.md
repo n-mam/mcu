@@ -3,11 +3,15 @@
 - Suported magnetometers HMC5883L(mag), BNO055 (9dof IMU), BNO085 (fused absolute rotation quaternion)
 - The original bosch sensortec driver for bno055 is used as is (under imu/bno055 folder)
 - The original ceva hillcrest labs driver for bno085 is used as is (under imu/sh2 folder)
-- bno055.h and bno085.h headers under the root folder are just wrapers over the original bno055/085 drivers with pico specific i2c read/write HAL callbacks.
-- HMC5883L uses NED reference frame (x is the yaw/heading vector) while bno055/085 deafult is ENU (y is the yaw/heading vector)
-- The heading should vary from 0 degrees (true geographic north) all the way to 360 degrees (one full x-y plane rotation), and then wrap back to 0.
-- all mag/imu headings are pointing to magnetic north. As such, local declination needs to be accounted for.
-- MPU6050 + HMC5883L test streams raw data over uart which can then be used for visualizing mahony absolute orientation filter (vtk implementation in the offset repo)
+- bno055.h and bno085.h headers under the root folder are just wrapers over the original
+  bno055/085 drivers with pico specific i2c read/write HAL callbacks.
+- HMC5883L uses NED reference frame (x is the yaw/heading vector) while bno055/085 deafult
+  is ENU (y is the yaw/heading vector)
+- The heading should vary from 0 degrees (true geographic north) all the way to 360 degrees
+  (one full x-y plane rotation), and then wrap back to 0.
+- All mag/imu headings are pointing to magnetic north. As such, local declination needs to be accounted for.
+- MPU6050 + HMC5883L test streams raw data over uart which can then be used for visualizing mahony
+  absolute orientation filter (vtk implementation in the offset repo)
 - Dont use the app folder; that has very old code; any desktop based telemetry/visualization would be in the offset repo
 ```
 ### FOC - torque and speed control
