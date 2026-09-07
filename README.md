@@ -1,6 +1,7 @@
 ### HMC5883L/BNO055/BNO085 header-only library
 ```
-- Suported magnetometers HMC5883L(mag), BNO055 (9dof IMU), BNO085 (fused absolute rotation quaternion)
+- Suported magnetometers HMC5883L(mag), BNO055 (9dof IMU), BNO085 (fused absolute rotation
+  quaternion)
 - The original bosch sensortec driver for bno055 is used as is (under imu/bno055 folder)
 - The original ceva hillcrest labs driver for bno085 is used as is (under imu/sh2 folder)
 - bno055.h and bno085.h headers under the root folder are just wrapers over the original
@@ -9,10 +10,12 @@
   is ENU (y is the yaw/heading vector)
 - The heading should vary from 0 degrees (true geographic north) all the way to 360 degrees
   (one full x-y plane rotation), and then wrap back to 0.
-- All mag/imu headings are pointing to magnetic north. As such, local declination needs to be accounted for.
-- MPU6050 + HMC5883L test streams raw data over uart which can then be used for visualizing mahony
-  absolute orientation filter (vtk implementation in the offset repo)
-- Dont use the app folder; that has very old code; any desktop based telemetry/visualization would be in the offset repo
+- All mag/imu headings are pointing to magnetic north. As such, local declination needs to
+  be accounted for.
+- MPU6050 + HMC5883L test streams raw data over uart which can then be used for visualizing
+  mahony absolute orientation filter (vtk implementation in the offset repo)
+- Dont use the app folder; that has very old code; any desktop based telemetry/visualization
+  would be in the offset repo
 ```
 ### FOC - torque and speed control
 ```
@@ -22,10 +25,10 @@
 - LM2596S buck converter. 12V supply, pot set to 9.5V
 - Cascaded control loops: position > speed > current
 - Current loop runs at 20 kHz, speed and position loops at 2 kHz
-- Position control is with shortest-path angle wrapping; a
+- Position control is with shortest-path angle wrapping;
   commanded target is always approached via the shorter rotational
   direction across the ±180° boundary rather than spinning the long
-  way around; accepts targets in degrees
+  way around; accepts targets in degrees via termite
 - Feedforward decoupling in the current loop (Ld/Lq cross-coupling
   and back-EMF compensation) for faster transient response
 - Space-vector PWM modulation with sector-based duty cycle computation
@@ -33,7 +36,7 @@
   (sign) and zero offset on startup
 - Open-loop V/F drive mode (`vfd.h`) is an independent control path
 - command and control over STM32 VCP UART (use termite or equivalent client app)
-- (`pi_plotter.py`) for PI graph visualizations
+- pi_plotter.py for PI graph visualizations
 ```
 #### Setup
 ```
