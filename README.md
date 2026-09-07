@@ -52,11 +52,11 @@ NOTE: for pico-w and pico-2w, please change the wifi SSID and password in initia
 
 #### STM32
 ```
-git clone https://github.com/ARM-software/CMSIS_5
+git clone --depth 1 https://github.com/ARM-software/CMSIS_5
 cd CMSIS_5/Device && mkdir ST && cd ST
-git clone https://github.com/STMicroelectronics/cmsis_device_f4
-git clone https://github.com/STMicroelectronics/cmsis_device_f7
-git clone https://github.com/STMicroelectronics/cmsis-device-h7.git
+git clone --depth 1 https://github.com/STMicroelectronics/cmsis_device_f4
+git clone --depth 1 https://github.com/STMicroelectronics/cmsis_device_f7
+git clone --depth 1 https://github.com/STMicroelectronics/cmsis-device-h7.git
 ```
 
 NOTE

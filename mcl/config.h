@@ -24,6 +24,7 @@ struct config {
     enum key : uint8_t {
         vf_mod,
         vf_ef,
+        p_ref,
         s_ref,
         s_kp,
         s_ki,
@@ -82,6 +83,7 @@ struct config {
     std::map<config::key, std::string> key_names = {
         {key::vf_mod, "vf_mod"},
         {key::vf_ef, "vf_ef"},
+        {key::p_ref, "p_ref"},
         {key::s_ki, "s_ki"},
         {key::s_kp, "s_kp"},
         {key::s_ref, "s_ref"},
@@ -95,6 +97,7 @@ struct config {
     std::map<std::string, key> names_key = {
         {"vf_mod", key::vf_mod},
         {"vf_ef", key::vf_ef},
+        {"p_ref", key::p_ref},
         {"s_ki", key::s_ki},
         {"s_kp", key::s_kp},
         {"s_ref", key::s_ref},

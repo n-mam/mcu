@@ -6,13 +6,17 @@
 #include <foc/encoder.h>
 #include <foc/current.h>
 #include <foc/speed.h>
+#include <foc/position.h>
 
 struct foc_controller_t {
     hardware_t hw{};
     encoder_t encoder;
     speed_control_t sc;
     current_control_t cc;
+    position_control_t pc;
     bool manual_drive = false;
+    bool position_mode = false;
+    uint16_t speed_loop_divider = 0;
 
     enum foc_state { stopped, running, fault };
     foc_state state = foc_state::stopped;
@@ -28,10 +32,20 @@ struct foc_controller_t {
         cc.d_pi = { .kp = CURRENT_KP, .ki = CURRENT_KI, .integrator = 0.0f, .out_min = -v_limit, .out_max = v_limit };
         cc.q_pi = { .kp = CURRENT_KP, .ki = CURRENT_KI, .integrator = 0.0f, .out_min = -v_limit, .out_max = v_limit };
         sc.pi   = { .kp = 0.03f, .ki = 1.4f, .integrator = 0.0f, .out_min = -0.30f, .out_max = 0.30f };
+        // Position loop: start P-only (ki = 0). Adding integral action on
+        // top of the speed loop's own integrator is a common way to get
+        // slow, underdamped oscillation on step commands — only add ki
+        // once the P-only case is tuned and steady-state droop under a
+        // real load is confirmed. out_min/out_max clamp the commanded
+        // speed_ref and should stay numerically consistent with sc.pi's.
+        pc.pi  = { .kp = 2.0f, .ki = 0.0f, .integrator = 0.0f, .out_min = -0.30f, .out_max = 0.30f };        
+        
         // manual hold delay
         mcl::delay_ms(2000);
         cc.reset();
         sc.reset();
+        pc.reset();
+        speed_loop_divider = 0;
         state = foc_state::running;
 
         uint64_t total_cycles = 0;
@@ -109,10 +123,12 @@ struct foc_controller_t {
         // Predicted angle
         const auto electrical_angle = encoder.predict_electrical_angle();
         // Speed control
-        static uint16_t speed_loop_divider = 0;
         if (++speed_loop_divider >= 10) {
             speed_loop_divider = 0;
             constexpr float SPEED_LOOP_DT = 0.0005f;
+            if (position_mode) {
+                sc.speed_ref = pc.position_control(enc.mechanical_angle, SPEED_LOOP_DT);
+            }
             cc.q_ref = sc.speed_control(enc.mechanical_velocity, SPEED_LOOP_DT);
         }
         // Current control
@@ -168,8 +184,20 @@ struct foc_controller_t {
 
     void set_config(const KeyValue& kv) {
         if (kv.key == config::key::s_ref) {
+            if (position_mode) {
+                sc.reset();
+            }
             manual_drive = true;
+            position_mode = false;
             sc.speed_ref = kv.value;
+        } else if (kv.key == config::key::p_ref) {
+            if (!position_mode) {
+                sc.reset();
+                pc.reset();
+            }
+            manual_drive = true;
+            position_mode = true;
+            pc.set_position_ref_deg(kv.value);
         } else if (kv.key == config::key::s_kp) {
             sc.pi.kp = kv.value;
         } else if (kv.key == config::key::s_ki) {
