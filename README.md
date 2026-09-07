@@ -1,5 +1,5 @@
 ### HMC5883L/BNO055/BNO085 header-only library
-
+```
 - Suported magnetometers HMC5883L(mag), BNO055 (9dof IMU), BNO085 (fused absolute rotation quaternion)
 - The original bosch sensortec driver for bno055 is used as is (under imu/bno055 folder)
 - The original ceva hillcrest labs driver for bno085 is used as is (under imu/sh2 folder)
@@ -9,9 +9,9 @@
 - all mag/imu headings are pointing to magnetic north. As such, local declination needs to be accounted for.
 - MPU6050 + HMC5883L test streams raw data over uart which can then be used for visualizing mahony absolute orientation filter (vtk implementation in the offset repo)
 - Dont use the app folder; that has very old code; any desktop based telemetry/visualization would be in the offset repo
-
+```
 ### FOC - torque and speed control
-
+```
 - MCU:STM32F446RE, inline current sensing using 2, INA240A 50v/v gain CSA's
 - TMC6300 combined HS/LS gate driver + power stage
 - DfRobot 2804 3-Phase Brushless DC Motor 12V 2600RPM 300g/cm + AS5600 encoder
@@ -30,7 +30,7 @@
 - Open-loop V/F drive mode (`vfd.h`) is an independent control path
 - command and control over STM32 VCP UART (use termite or equivalent client app)
 - (`pi_plotter.py`) for PI graph visualizations
-
+```
 #### Setup
 ```
 Download and unzip arm-none-eabi toolchain.
