@@ -4,17 +4,17 @@
 #include <foc/control.h>
 #include <foc/transforms.h>
 
-constexpr float CSA_GAIN   = 50.0f; // V/V, INA240A2
-constexpr float R_SHUNT    = 0.010f; // 10 mill ohms
+constexpr float CSA_GAIN = 50.0f; // V/V, INA240A2
+constexpr float R_SHUNT = 0.010f; // 10 mill ohms
 
 constexpr float MOTOR_KV = 220.0f; // RPM/volt
 constexpr float MOTOR_RESISTANCE = 2.3f; // Ohms
-constexpr float MOTOR_INDUCTANCE_H = 0.00086f; // Henries
+constexpr float MOTOR_INDUCTANCE = 0.00086f; // Henries
 // Current loop bandwidth
 const float CURRENT_BANDWIDTH = 2000.0f;
 // Derived current loop gains
 const float WC = 2.0f * PI * CURRENT_BANDWIDTH;
-inline float CURRENT_KP = MOTOR_INDUCTANCE_H * WC;
+inline float CURRENT_KP = MOTOR_INDUCTANCE * WC;
 inline float CURRENT_KI = MOTOR_RESISTANCE * WC;
 
 // Ke (V per mechanical rad/s) derived from KV, then divided by pole pairs
@@ -24,7 +24,7 @@ inline float CURRENT_KI = MOTOR_RESISTANCE * WC;
 // (spin open-loop at known speed, measure induced phase voltage,
 // lambda = V_peak / electrical_velocity).
 constexpr float MOTOR_KE = 1.0f / (MOTOR_KV * (TWO_PI / 60.0f));
-constexpr float MOTOR_LAMBDA = MOTOR_KE / (float)POLE_PAIRS * 0.55;
+constexpr float MOTOR_LAMBDA = MOTOR_KE / (float)POLE_PAIRS;// * 0.55;
 
 struct current_control_t {
     pi_controller_t d_pi;
@@ -83,8 +83,8 @@ struct current_control_t {
         // Feedforward: decoupling + back-EMF compensation.
         // These are recomputed fresh each cycle -- no integrator state,
         // so anti-windup scaling below only needs to touch the PI portion.
-        float vd_ff = -electrical_velocity * MOTOR_INDUCTANCE_H * dq.q;
-        float vq_ff =  electrical_velocity * MOTOR_INDUCTANCE_H * dq.d
+        float vd_ff = -electrical_velocity * MOTOR_INDUCTANCE * dq.q;
+        float vq_ff =  electrical_velocity * MOTOR_INDUCTANCE * dq.d
                             + electrical_velocity * MOTOR_LAMBDA;
         vd = vd_pi + vd_ff;
         vq = vq_pi + vq_ff;

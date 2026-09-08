@@ -27,14 +27,14 @@
 - Current loop runs at 20 kHz, speed and position loops at 2 kHz
 - Position control is with shortest-path angle wrapping;
   commanded target is always approached via the shorter rotational
-  direction across the ±180° boundary rather than spinning the long
+  direction across the +/-180° boundary rather than spinning the long
   way around; accepts targets in degrees via termite
 - Feedforward decoupling in the current loop (Ld/Lq cross-coupling
   and back-EMF compensation) for faster transient response
-- Space-vector PWM modulation with sector-based duty cycle computation
+- Space vector PWM modulation with sector-based duty cycle computation
 - Encoder calibration: auto-detects electrical direction
   (sign) and zero offset on startup
-- Open-loop V/F drive mode (`vfd.h`) is an independent control path
+- Open-loop V/F drive mode (vfd.h) is an independent control path
 - command and control over STM32 VCP UART (use termite or equivalent client app)
 - pi_plotter.py for PI graph visualizations
 ```

@@ -3,7 +3,7 @@
 
 constexpr float ADC_VREF = 3.3f;
 constexpr float ADC_MAXCNT = 4095.0f;
-constexpr float VBUS = 9.49f;
+constexpr float VBUS = 9.50f;
 constexpr float INV_VBUS = 1 / VBUS;
 
 struct hardware_t {
