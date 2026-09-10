@@ -17,7 +17,7 @@
 - Dont use the app folder; that has very old code; any desktop based telemetry/visualization
   would be in the offset repo
 ```
-### FOC - torque and speed control
+### FOC - current, speed and position control
 ```
 - MCU:STM32F446RE, inline current sensing using 2, INA240A 50v/v gain CSA's
 - TMC6300 combined HS/LS gate driver + power stage

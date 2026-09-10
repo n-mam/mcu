@@ -24,7 +24,7 @@ inline float CURRENT_KI = MOTOR_RESISTANCE * WC;
 // (spin open-loop at known speed, measure induced phase voltage,
 // lambda = V_peak / electrical_velocity).
 constexpr float MOTOR_KE = 1.0f / (MOTOR_KV * (TWO_PI / 60.0f));
-constexpr float MOTOR_LAMBDA = MOTOR_KE / (float)POLE_PAIRS;// * 0.55;
+constexpr float MOTOR_LAMBDA = MOTOR_KE / (float)POLE_PAIRS * 0.55;
 
 struct current_control_t {
     pi_controller_t d_pi;

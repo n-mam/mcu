@@ -18,7 +18,7 @@ struct foc_controller_t {
     uint16_t position_loop_divider = 0;
     enum class foc_mode { ramp, current, speed, position };
     foc_mode mode = foc_mode::ramp;
-    enum foc_state { stopped, running, fault };
+    enum class foc_state { stopped, running, fault };
     foc_state state = foc_state::stopped;
 
     void start() {
@@ -198,24 +198,30 @@ struct foc_controller_t {
 
     void set_config(const KeyValue& kv) {
         if (kv.key == config::key::s_ref) {
-            mode = foc_mode::speed;
-            reset_outer_loop_timing();
-            sc.reset();
-            pc.reset();
-            cc.q_ref = 0.0f;
+            if (mode != foc_mode::speed) {
+                mode = foc_mode::speed;
+                reset_outer_loop_timing();
+                sc.reset();
+                pc.reset();
+                cc.q_ref = 0.0f;
+            }
             sc.speed_ref = kv.value;
         } else if (kv.key == config::key::p_ref) {
-            mode = foc_mode::position;
-            reset_outer_loop_timing();
-            sc.reset();
-            pc.reset();
-            sc.speed_ref = 0.0f;
+            if (mode != foc_mode::position) {
+                mode = foc_mode::position;
+                reset_outer_loop_timing();
+                sc.reset();
+                pc.reset();
+                sc.speed_ref = 0.0f;
+            }
             pc.set_position_ref_deg(kv.value);
         } else if (kv.key == config::key::q_ref) {
-            mode = foc_mode::current;
-            reset_outer_loop_timing();
-            sc.reset();
-            pc.reset();
+            if (mode != foc_mode::current) {
+                mode = foc_mode::current;
+                reset_outer_loop_timing();
+                sc.reset();
+                pc.reset();
+            }
             cc.q_ref = kv.value;
         } else if (kv.key == config::key::s_kp) {
             sc.pi.kp = kv.value;
