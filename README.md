@@ -24,19 +24,42 @@
 - DfRobot 2804 3-Phase Brushless DC Motor 12V 2600RPM 300g/cm + AS5600 encoder
 - LM2596S buck converter. 12V supply, pot set to 9.5V
 - Cascaded control loops: position > speed > current
-- Current loop runs at 20 kHz, speed and position loops at 2 kHz
-- Position control is with shortest-path angle wrapping;
-  commanded target is always approached via the shorter rotational
-  direction across the +/-180° boundary rather than spinning the long
-  way around; accepts targets in degrees via termite
-- Feedforward decoupling in the current loop (Ld/Lq cross-coupling
-  and back-EMF compensation) for faster transient response
+- Current loop runs at 20kHz, speed loop at 2kHz, position loop at 1kHz.
+  encoder is read at 1KHz
+- Position control is with shortest-path angle wrapping; commanded target is
+  always approached via the shorter rotational direction across the +/-180°
+  boundary rather than spinning the long way around; accepts targets in degrees.
+- Feedforward decoupling in the current loop (Ld/Lq cross-coupling and back-EMF
+  compensation) for faster transient response.
 - Space vector PWM modulation with sector-based duty cycle computation
-- Encoder calibration: auto-detects electrical direction
-  (sign) and zero offset on startup
+- Encoder calibration: detects electrical direction (sign) and zero offset
 - Open-loop V/F drive mode (vfd.h) is an independent control path
 - command and control over STM32 VCP UART (use termite or equivalent client app)
 - pi_plotter.py for PI graph visualizations
+```
+```
+after firmare flash open termite. You should see the following messages:
+waiting for new action.. -1
+waiting for new action.. -1
+waiting for new action.. -1
+waiting for new action.. -1
+waiting for new action.. -1
+waiting for new action.. -1
+waiting for new action.. -1
+waiting for new action.. -1
+waiting for new action.. -1
+Invoke action 24 for foc or 23 for vfd
+action:24
+at this point you could independently switch/control either speed or theposition
+s_ref:5
+s_ref:0.1
+etc..
+p_ref:0
+p_ref:90
+p_ref:180
+p_ref_0
+invoke action 21 for mahony filter test. Close termite and the open offset's
+vtk tab and connect to the VCP port IMU stream. This would load the aircraft model
 ```
 #### Setup
 ```

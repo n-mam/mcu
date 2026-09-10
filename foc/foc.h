@@ -14,10 +14,10 @@ struct foc_controller_t {
     speed_control_t sc;
     current_control_t cc;
     position_control_t pc;
-    bool manual_drive = false;
-    bool position_mode = false;
     uint16_t speed_loop_divider = 0;
-
+    uint16_t position_loop_divider = 0;
+    enum class foc_mode { ramp, current, speed, position };
+    foc_mode mode = foc_mode::ramp;
     enum foc_state { stopped, running, fault };
     foc_state state = foc_state::stopped;
 
@@ -38,14 +38,15 @@ struct foc_controller_t {
         // once the P-only case is tuned and steady-state droop under a
         // real load is confirmed. out_min/out_max clamp the commanded
         // speed_ref and should stay numerically consistent with sc.pi's.
-        pc.pi  = { .kp = 2.0f, .ki = 0.0f, .integrator = 0.0f, .out_min = -0.30f, .out_max = 0.30f };        
-        
+        pc.pi  = { .kp = 2.0f, .ki = 0.0f, .integrator = 0.0f, .out_min = -0.30f, .out_max = 0.30f };
+
         // manual hold delay
         mcl::delay_ms(2000);
         cc.reset();
         sc.reset();
         pc.reset();
         speed_loop_divider = 0;
+        position_loop_divider = 0;
         state = foc_state::running;
 
         uint64_t total_cycles = 0;
@@ -66,7 +67,7 @@ struct foc_controller_t {
             float elapsed_s = (float)total_cycles * inv_SystemCoreClock;
             uint32_t now_ms = mcl::time_ms();
             if ((uint32_t)(now_ms - last_ramp_ms) >= 1U) {
-                if (!manual_drive) {
+                if (mode == foc_mode::ramp) {
                     sc.ramp_linear(elapsed_s);
                 }
                 last_ramp_ms = now_ms;
@@ -122,20 +123,28 @@ struct foc_controller_t {
         const auto& enc = encoder.read();
         // Predicted angle
         const auto electrical_angle = encoder.predict_electrical_angle();
-        // Speed control
-        if (++speed_loop_divider >= 10) {
-            speed_loop_divider = 0;
-            constexpr float SPEED_LOOP_DT = 0.0005f;
-            if (position_mode) {
-                sc.speed_ref = pc.position_control(enc.mechanical_angle, SPEED_LOOP_DT);
+        // Position loop: 1 kHz
+        if (mode == foc_mode::position) {
+            if (++position_loop_divider >= 20) {
+                position_loop_divider = 0;
+                constexpr float POSITION_LOOP_DT = 1.0f / 1000.0f;
+                sc.speed_ref = pc.position_control(
+                    enc.mechanical_angle, POSITION_LOOP_DT);
             }
-            cc.q_ref = sc.speed_control(enc.mechanical_velocity, SPEED_LOOP_DT);
+        }
+        // Speed loop: 2 kHz
+        if (mode != foc_mode::current) {
+            if (++speed_loop_divider >= 10) {
+                speed_loop_divider = 0;
+                constexpr float SPEED_LOOP_DT = 1.0f / 2000.0f;
+                cc.q_ref = sc.speed_control(
+                    enc.mechanical_velocity, SPEED_LOOP_DT);
+            }
         }
         // Current control
         constexpr float CURRENT_LOOP_DT = 1.0f / 20'000.0f;
         auto dq = cc.current_control(electrical_angle,
-                enc.electrical_velocity, CURRENT_LOOP_DT);
-
+            enc.electrical_velocity, CURRENT_LOOP_DT);
         auto ab = inverse_park_transform(dq, electrical_angle);
         // PI outputs are in volts; svpwm
         // expects Vref normalized to Vbus.
@@ -182,29 +191,37 @@ struct foc_controller_t {
         }
     }
 
+    void reset_outer_loop_timing() {
+        speed_loop_divider = 0;
+        position_loop_divider = 0;
+    }
+
     void set_config(const KeyValue& kv) {
         if (kv.key == config::key::s_ref) {
-            if (position_mode) {
-                sc.reset();
-            }
-            manual_drive = true;
-            position_mode = false;
+            mode = foc_mode::speed;
+            reset_outer_loop_timing();
+            sc.reset();
+            pc.reset();
+            cc.q_ref = 0.0f;
             sc.speed_ref = kv.value;
         } else if (kv.key == config::key::p_ref) {
-            if (!position_mode) {
-                sc.reset();
-                pc.reset();
-            }
-            manual_drive = true;
-            position_mode = true;
+            mode = foc_mode::position;
+            reset_outer_loop_timing();
+            sc.reset();
+            pc.reset();
+            sc.speed_ref = 0.0f;
             pc.set_position_ref_deg(kv.value);
+        } else if (kv.key == config::key::q_ref) {
+            mode = foc_mode::current;
+            reset_outer_loop_timing();
+            sc.reset();
+            pc.reset();
+            cc.q_ref = kv.value;
         } else if (kv.key == config::key::s_kp) {
             sc.pi.kp = kv.value;
         } else if (kv.key == config::key::s_ki) {
             sc.pi.ki = kv.value;
-        } else if (kv.key == config::key::iq_ref) {
-            cc.q_ref = kv.value;
-        } else if (kv.key == config::key::id_ref) {
+        } else if (kv.key == config::key::d_ref) {
             cc.d_ref = kv.value;
         } else if (kv.key == config::key::c_kp) {
             cc.q_pi.kp = kv.value;
