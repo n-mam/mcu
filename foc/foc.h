@@ -32,12 +32,6 @@ struct foc_controller_t {
         cc.d_pi = { .kp = CURRENT_KP, .ki = CURRENT_KI, .integrator = 0.0f, .out_min = -v_limit, .out_max = v_limit };
         cc.q_pi = { .kp = CURRENT_KP, .ki = CURRENT_KI, .integrator = 0.0f, .out_min = -v_limit, .out_max = v_limit };
         sc.pi   = { .kp = 0.03f, .ki = 1.4f, .integrator = 0.0f, .out_min = -0.30f, .out_max = 0.30f };
-        // Position loop: start P-only (ki = 0). Adding integral action on
-        // top of the speed loop's own integrator is a common way to get
-        // slow, underdamped oscillation on step commands — only add ki
-        // once the P-only case is tuned and steady-state droop under a
-        // real load is confirmed. out_min/out_max clamp the commanded
-        // speed_ref and should stay numerically consistent with sc.pi's.
         pc.pi  = { .kp = 2.0f, .ki = 0.0f, .integrator = 0.0f, .out_min = -0.30f, .out_max = 0.30f };
 
         // manual hold delay
@@ -233,6 +227,8 @@ struct foc_controller_t {
             cc.q_pi.kp = kv.value;
         } else if (kv.key == config::key::c_ki) {
             cc.q_pi.ki = kv.value;
+        } else if (kv.key == config::key::p_kp) {
+            pc.pi.kp = kv.value;
         }
     }
 };

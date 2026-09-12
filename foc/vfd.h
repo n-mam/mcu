@@ -90,8 +90,7 @@ struct vf_controller_t {
                     frac = 0.0f;
                 else if (frac >= 1.0f)
                     frac = 1.0f;
-                return start +
-                    frac * (end - start);
+                return start + frac * (end - start);
             }
     }
 
@@ -178,8 +177,8 @@ struct vf_controller_t {
         const float omega_rotor = enc.electrical_velocity;
         // Induction-motor slip angular velocity [rad/s].
         // omega_slip = omega_sync - omega_rotor
-        // Positive slip means the commanded stator field is rotating
-        // faster than the rotor.
+        // Positive slip means the commanded stator field
+        // is rotating faster than the rotor.
         const float omega_slip = omega_sync - omega_rotor;
         // Convert slip angular velocity to electrical frequency [Hz].
         const float slip_frequency = omega_slip / TWO_PI;
@@ -230,6 +229,5 @@ inline void test_vf_drive() {
         };
     vf.start();
 }
-
 
 #endif

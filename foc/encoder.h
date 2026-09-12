@@ -65,12 +65,20 @@ struct encoder_t {
     }
 
     inline uint16_t average_raw(serial::i2c& bus) {
-        uint64_t sum = 0;
+        const uint16_t reference = read_raw(bus);
+        int64_t sum_delta = 0;
         for (uint32_t i = 0; i < 100; ++i) {
-            sum += read_raw(bus);
+            const uint16_t raw = read_raw(bus);
+            sum_delta += signed_wrap_delta(reference, raw);
             mcl::sleep_ms(1);
         }
-        return (uint16_t)(sum / 100);
+        const int32_t mean_delta = (int32_t)(sum_delta / 100);
+        int32_t result = (int32_t)reference + mean_delta;
+        result %= 4096;
+        if (result < 0) {
+            result += 4096;
+        }
+        return (uint16_t)result;
     }
 
     // calculate the shortest signed difference between two
@@ -214,8 +222,7 @@ struct encoder_t {
         const uint16_t initial_zero_raw = average_raw(bus);
         LOG << " zero raw = " << initial_zero_raw;
         // Move the electrical field +90 degrees.
-        // Valpha = 0
-        // Vbeta  = +V
+        // Valpha = 0, Vbeta = +V
         // If positive electrical rotation makes the encoder count
         // increase, sign = +1.
         // If it makes the encoder count decrease, sign = -1.
@@ -234,6 +241,7 @@ struct encoder_t {
             sign = -1;
         } else {
             sign = 0;
+            voltage_to_timer_pwm(timer, 0.0f, 0.0f);
             return false;
         }
         LOG << " +90 raw = " << plus_90_raw;
@@ -249,6 +257,7 @@ struct encoder_t {
         const int32_t zero_error = signed_wrap_delta(initial_zero_raw, final_zero_raw);
         if (zero_error > 20 || zero_error < -20) {
             LOG << "WARNING: encoder zero moved by " << zero_error << " counts";
+            voltage_to_timer_pwm(timer, 0.0f, 0.0f);
             return false;
         }
         zero_raw = final_zero_raw;

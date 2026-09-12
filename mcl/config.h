@@ -14,8 +14,7 @@ struct command {
     };
     KeyValue kv{};
     std::string action;
-    command_type type =
-        command_type::invalid;
+    command_type type = command_type::invalid;
 };
 
 
@@ -32,6 +31,7 @@ struct config {
         d_ref,
         c_kp,
         c_ki,
+        p_kp,
         action,
     };
 
@@ -91,6 +91,7 @@ struct config {
         {key::q_ref, "q_ref"},
         {key::c_ki, "c_ki"},
         {key::c_kp, "c_kp"},
+        {key::p_kp, "p_kp"},
         {key::action, "action"}
     };
 
@@ -105,6 +106,7 @@ struct config {
         {"q_ref", key::q_ref},
         {"c_ki", key::c_ki},
         {"c_kp", key::c_kp},
+        {"p_kp", key::p_kp},
         {"action", key::action}
     };
 };
