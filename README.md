@@ -32,9 +32,8 @@
 - Space vector PWM modulation with sector-based duty cycle computation
 - Encoder calibration: detects electrical direction (sign) and zero offset
 - Open-loop V/F drive mode (vfd.h) is an independent control path
-- command and control over STM32 VCP UART (use the qml app or equivalent
-  client app like termite)
-- pi_plotter.py for PI graph visualizations
+- command and control over STM32 VCP UART (use the pi_plotter.py) this has
+  PI graph visualizations as well
 ```
 ```
 after firmare flash open termite. You should see the following messages:
@@ -62,6 +61,7 @@ vtk tab and connect to the VCP port IMU stream. This would load the aircraft mod
 ```
 Demo video:
 https://youtu.be/iBzUKo69kyM
+https://youtu.be/bQJQPgyJCYE
 <img width="1600" height="900" alt="image" src="https://github.com/user-attachments/assets/7abdfbbb-c486-4ebb-9208-12562a59b05c" />
 
 #### Setup

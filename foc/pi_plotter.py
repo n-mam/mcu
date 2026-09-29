@@ -132,6 +132,51 @@ def serial_reader():
             pass
         serial_port = None
         print("Serial port closed.")
+
+# ============================================================
+# SEND COMMAND TO SERIAL PORT
+# ============================================================
+def send_serial_command():
+    global serial_port
+
+    command = command_entry.get().strip()
+
+    if not command:
+        status_label.config(
+            text="Enter a command",
+            fg="red"
+        )
+        return
+
+    if serial_port is None or not serial_port.is_open:
+        status_label.config(
+            text="Serial port not connected",
+            fg="red"
+        )
+        return
+
+    try:
+        # Add newline so the receiving MCU can use readline()
+        serial_port.write(
+            (command + "\n").encode("utf-8")
+        )
+
+        serial_port.flush()
+
+        status_label.config(
+            text=f"Sent: {command}",
+            fg="green"
+        )
+
+        # Optional: clear box after sending
+        command_entry.delete(0, tk.END)
+
+    except Exception as e:
+        status_label.config(
+            text=f"Send error: {e}",
+            fg="red"
+        )
+
 # ============================================================
 # CHOOSE NICE TICK SPACING
 # ============================================================
@@ -939,6 +984,65 @@ s_value_label = tk.Label(
 s_value_label.pack(
     side=tk.LEFT,
     padx=30
+)
+
+# ============================================================
+# SERIAL COMMAND BAR
+# ============================================================
+command_frame = tk.Frame(
+    root,
+    bg="#eeeeee",
+    bd=1,
+    relief=tk.RIDGE
+)
+
+command_frame.pack(
+    side=tk.TOP,
+    fill=tk.X,
+    padx=5,
+    pady=4
+)
+
+tk.Label(
+    command_frame,
+    text="Command:",
+    font=("Arial", 10, "bold"),
+    bg="#eeeeee"
+).pack(
+    side=tk.LEFT,
+    padx=(10, 5)
+)
+
+command_entry = tk.Entry(
+    command_frame,
+    width=50,
+    font=("Consolas", 11)
+)
+
+command_entry.pack(
+    side=tk.LEFT,
+    padx=5,
+    pady=6
+)
+
+send_button = tk.Button(
+    command_frame,
+    text="SEND",
+    font=("Arial", 10, "bold"),
+    bg="#ccffcc",
+    width=10,
+    command=send_serial_command
+)
+
+send_button.pack(
+    side=tk.LEFT,
+    padx=8
+)
+
+# Press ENTER to send
+command_entry.bind(
+    "<Return>",
+    lambda event: send_serial_command()
 )
 # ============================================================
 # MATPLOTLIB FIGURE

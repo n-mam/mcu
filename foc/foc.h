@@ -215,6 +215,7 @@ struct foc_controller_t {
                 reset_outer_loop_timing();
                 sc.reset();
                 pc.reset();
+                cc.reset();
             }
             cc.q_ref = kv.value;
         } else if (kv.key == config::key::s_kp) {
