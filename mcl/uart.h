@@ -1,27 +1,29 @@
 #ifndef UART_H
 #define UART_H
 
+#include <string>
 #include <stdint.h>
 
 namespace mcl {
 
 struct uart {
 
-    uart(uint16_t txPin, uint16_t rxPin,
-            USART_TypeDef *instance,
-            GPIO_TypeDef *gpioPort = GPIOA,
-            uint32_t baudRate = 115200,
-            uint8_t wordLength = 8,
-            bool enableParity = false)
-        : txPin(txPin),
-          rxPin(rxPin),
-          gpioPort(gpioPort),
-          instance(instance),
-          txDmaStream(DMA1_Stream6),
-          rxDmaStream(DMA1_Stream5),
-          rxReadPosition(0) {
-            init(txPin, rxPin, baudRate, wordLength, enableParity);
-    }
+    uart(uint16_t txPin,
+        uint16_t rxPin,
+        USART_TypeDef *instance,
+        GPIO_TypeDef *gpioPort = GPIOA,
+        uint32_t baudRate = 115200,
+        uint8_t wordLength = 8,
+        bool enableParity = false) :
+            txPin(txPin),
+            rxPin(rxPin),
+            gpioPort(gpioPort),
+            instance(instance),
+            txDmaStream(DMA1_Stream6),
+            rxDmaStream(DMA1_Stream5),
+            rxReadPosition(0) {
+                init(txPin, rxPin, baudRate, wordLength, enableParity);
+            }
 
     void init(uint16_t txPin, uint16_t rxPin, uint32_t baudRate, uint8_t wordLength, bool enableParity) {
         // Enable clock for GPIO
@@ -113,7 +115,6 @@ struct uart {
         // Start RX DMA
         rxDmaStream->CR |= DMA_SxCR_EN;
     }
-
 
     void initTxDma() {
         // Enable DMA1 clock
@@ -221,27 +222,27 @@ struct uart {
         return {};
     }
 
-
     bool txBusy() {
         return (txDmaStream->CR & DMA_SxCR_EN) != 0;
     }
 
     private:
 
+    static constexpr uint16_t TX_BUFFER_SIZE = 768;
+    static constexpr uint16_t RX_BUFFER_SIZE = 256;
+    static constexpr uint16_t COMMAND_BUFFER_SIZE = 128;
+
     uint16_t txPin;
     uint16_t rxPin;
     GPIO_TypeDef *gpioPort;
     USART_TypeDef *instance;
-    DMA_Stream_TypeDef *txDmaStream;
-    DMA_Stream_TypeDef *rxDmaStream;
-    static constexpr uint16_t TX_BUFFER_SIZE = 768;
-    uint8_t txBuffer[TX_BUFFER_SIZE];
-    static constexpr uint16_t RX_BUFFER_SIZE = 256;
-    uint8_t rxBuffer[RX_BUFFER_SIZE];
-    static constexpr uint16_t COMMAND_BUFFER_SIZE = 128;
-    char commandBuffer[COMMAND_BUFFER_SIZE];
     uint16_t rxReadPosition;
     uint16_t commandLength = 0;
+    DMA_Stream_TypeDef *txDmaStream;
+    DMA_Stream_TypeDef *rxDmaStream;
+    uint8_t txBuffer[TX_BUFFER_SIZE];
+    uint8_t rxBuffer[RX_BUFFER_SIZE];
+    char commandBuffer[COMMAND_BUFFER_SIZE];
 };
 
 }

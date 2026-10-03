@@ -135,31 +135,22 @@ inline void process_uart() {
     }
 }
 
-void tim6_init(uint32_t frequency_hz) {
-    // Enable TIM6 peripheral clock
-    enableClockForTimer(TIM6);
-    // TIM6 timer clock = 90 MHz on STM32F446
+void tim3_init(uint32_t frequency_hz) {
+    enableClockForTimer(TIM3);
     uint32_t timer_clock = apb1TimerClock();
-    // Calculate prescaler and auto-reload
     uint32_t period = timer_clock / frequency_hz;
-    TIM6->PSC = 0;
-    TIM6->ARR = period - 1;
-    // Generate an update event to load the registers
-    TIM6->EGR = TIM_EGR_UG;
-    // Clear update flag
-    TIM6->SR &= ~TIM_SR_UIF;
-    // Enable update interrupt
-    TIM6->DIER |= TIM_DIER_UIE;
-    // Enable TIM6 interrupt in NVIC
-    NVIC_EnableIRQ(TIM6_DAC_IRQn);
-    // Start timer
-    TIM6->CR1 |= TIM_CR1_CEN;
+    TIM3->PSC = 0;
+    TIM3->ARR = period - 1;
+    TIM3->EGR = TIM_EGR_UG;
+    TIM3->SR &= ~TIM_SR_UIF;
+    TIM3->DIER |= TIM_DIER_UIE;
+    NVIC_EnableIRQ(TIM3_IRQn);
+    TIM3->CR1 |= TIM_CR1_CEN;
 }
 
-extern "C" void TIM6_DAC_IRQHandler(void) {
-    if (TIM6->SR & TIM_SR_UIF) {
-        TIM6->SR &= ~TIM_SR_UIF;
-        // 1kHz, every 1 ms
+extern "C" void TIM3_IRQHandler(void) {
+    if (TIM3->SR & TIM_SR_UIF) {
+        TIM3->SR &= ~TIM_SR_UIF;
         process_uart();
     }
 }
@@ -250,7 +241,7 @@ inline void initialize() {
     mcl::sleep_ms(2500);
     mcl::initialize_logging(mcl::log::info);
     #if defined (STM32)
-    tim6_init(50);
+    tim3_init(50);
     std::cout << "SystemCoreClock: " << SystemCoreClock << std::endl;
     #endif
 }
