@@ -1,6 +1,8 @@
 #include <sns/sns.h>
+#if defined (STM32)
 #include <foc/vfd.h>
 #include <foc/foc.h>
+#endif
 
 static constexpr
     std::pair<int, void(*)()>
@@ -26,8 +28,10 @@ static constexpr
             {19,  test_mpu6050},
             {20,  test_mahony},
             {21,  adc_tim_dma_test},
+            #if defined (STM32)
             {22,  test_vf_drive},
             {23,  test_foc},
+            #endif
             #if defined(PICO)
             {99, []() {
                 watchdog_enable(3000, true);

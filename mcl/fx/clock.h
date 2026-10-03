@@ -39,18 +39,28 @@ inline uint64_t time_us() {
 }
 
 inline uint32_t elapsed_us(uint32_t start_cycles) {
+    #if defined(PICO)
+    uint32_t now_cycles = time_us_32();
+    uint32_t delta_cycles = now_cycles - start_cycles;
+    return delta_cycles;
+    #else
     uint32_t now_cycles = DWT->CYCCNT;
-    // correct across HW wrap: uint32_t modulus matches CYCCNT's native 2^32 wrap
     uint32_t delta_cycles = now_cycles - start_cycles;
     return delta_cycles / (SystemCoreClock / 1'000'000U);
+    #endif
 }
 
 inline void delay_us(uint32_t us) {
-    #if defined STM32
+    #if defined(PICO)
+    uint32_t start = time_us_32();
+    while ((time_us_32() - start) < us) {
+        tight_loop_contents();
+    }
+    #elif defined(STM32)
     uint32_t start = DWT->CYCCNT;
     uint32_t ticks = us * (SystemCoreClock / 1000000);
     while ((DWT->CYCCNT - start) < ticks);
-    #endif
+#endif
 }
 
 inline void delay_ms(uint32_t milliseconds) {

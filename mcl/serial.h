@@ -33,6 +33,7 @@ struct serial {
         #if defined (STM32)
         return uart2.processRx();
         #endif
+        return "";
     }
 
     #if defined (STM32)

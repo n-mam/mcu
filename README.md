@@ -39,12 +39,7 @@
 after firmare flash open termite. You should see the following messages:
 waiting for new action.. -1
 waiting for new action.. -1
-waiting for new action.. -1
-waiting for new action.. -1
-waiting for new action.. -1
-waiting for new action.. -1
-waiting for new action.. -1
-waiting for new action.. -1
+:
 waiting for new action.. -1
 Invoke action 23 for foc or 22 for vfd
 action:24
@@ -60,8 +55,10 @@ invoke action 21 for mahony filter test. Close termite and the open offset's
 vtk tab and connect to the VCP port IMU stream. This would load the aircraft model
 ```
 Demo video:
+```
 https://youtu.be/iBzUKo69kyM
 https://youtu.be/bQJQPgyJCYE
+```
 <img width="1600" height="900" alt="image" src="https://github.com/user-attachments/assets/7abdfbbb-c486-4ebb-9208-12562a59b05c" />
 
 #### Setup

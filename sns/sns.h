@@ -202,6 +202,7 @@ inline void test_mahony() {
     }
 }
 
+#if defined (STM32)
 // TIM2 update event →
 //   ADC1 external trigger →
 //      ADC conversion →
@@ -318,8 +319,7 @@ inline void adc_tim_dma_test() {
         }
     }
 }
-
-#if defined (PICO)
+#elif defined (PICO)
 inline void adc_tim_dma_test() {}
 #endif
 
